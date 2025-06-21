@@ -111,7 +111,7 @@ def transcribe_audio(mp3_path):
                 response_format="text",
                 language="en"
             )
-        return transcript.text.strip()
+        return transcript.strip()
     except Exception as e:
         logging.error(f"❌ Error during transcription: {str(e)}")
         raise
