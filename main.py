@@ -116,27 +116,30 @@ def transcribe_audio(mp3_path):
         logging.error(f"❌ Error during transcription: {str(e)}")
         raise
 
+# NEW, MORE FLEXIBLE VERSION
 def parse_scores_from_report(report_text):
     """
-    Parses scores from the generated report text using regular expressions.
+    Parses scores from the generated report text using more flexible regular expressions.
     """
     scores = {}
     
     def extract_score(pattern, text):
-        match = re.search(pattern, text, re.IGNORECASE)
+        # We use the re.MULTILINE flag to help search line by line
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
         return int(match.group(1)) if match else 0
 
-    scores['greeting'] = extract_score(r"Professional Greeting & Introduction Score:\s*(\d{1,2})", report_text)
-    scores['listening'] = extract_score(r"Active Listening & Empathy Score:\s*(\d{1,2})", report_text)
-    scores['understanding_needs'] = extract_score(r"Understanding Customer’s Needs Score:\s*(\d{1,2})", report_text)
-    scores['product_explanation'] = extract_score(r"Product/Service Explanation Score:\s*(\d{1,2})", report_text)
-    scores['personalization'] = extract_score(r"Personalization & Lifestyle Suitability Score:\s*(\d{1,2})", report_text)
-    scores['objection_handling'] = extract_score(r"Handling Objections & Answering Queries Score:\s*(\d{1,2})", report_text)
-    scores['pricing_communication'] = extract_score(r"Pricing & Value Communication Score:\s*(\d{1,2})", report_text)
-    scores['trust_building'] = extract_score(r"Trust & Confidence Building Score:\s*(\d{1,2})", report_text)
-    scores['call_closure'] = extract_score(r"Call Closure & Next Step Commitment Score:\s*(\d{1,2})", report_text)
+    # The new regex patterns now look for the keywords and allow for other text (like bullet points or parentheticals) around them.
+    scores['greeting'] = extract_score(r"Professional Greeting.*?Score:\s*(\d{1,2})", report_text)
+    scores['listening'] = extract_score(r"Active Listening.*?Score:\s*(\d{1,2})", report_text)
+    scores['understanding_needs'] = extract_score(r"Understanding Customer’s Needs.*?Score:\s*(\d{1,2})", report_text)
+    scores['product_explanation'] = extract_score(r"Product/Service Explanation.*?Score:\s*(\d{1,2})", report_text)
+    scores['personalization'] = extract_score(r"Personalization & Lifestyle.*?Score:\s*(\d{1,2})", report_text)
+    scores['objection_handling'] = extract_score(r"Handling Objections & Answering.*?Score:\s*(\d{1,2})", report_text)
+    scores['pricing_communication'] = extract_score(r"Pricing & Value Communication.*?Score:\s*(\d{1,2})", report_text)
+    scores['trust_building'] = extract_score(r"Trust & Confidence Building.*?Score:\s*(\d{1,2})", report_text)
+    scores['call_closure'] = extract_score(r"Call Closure & Next Step.*?Score:\s*(\d{1,2})", report_text)
     
-    logging.info(f"📊 Parsed Scores: {scores}")
+    logging.info(f"📊 Parsed Scores (Flexible): {scores}")
     return scores
 
 # REPLACED FUNCTION WITH NEW PROMPT
