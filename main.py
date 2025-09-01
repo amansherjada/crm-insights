@@ -92,28 +92,32 @@ def transcribe_audio(mp3_path):
         logging.error(f"❌ Error during transcription: {str(e)}")
         raise
 
-# ULTIMATE FIX VERSION - The one and only version of this function
+# THE FINAL SOLUTION
 def parse_scores_from_report(report_text):
     """
-    Parses scores using a flexible pattern that ignores markdown formatting like bold asterisks.
+    Parses scores using a flexible pattern that ignores ANY markdown formatting (like * or **).
     """
     scores = {}
+    
     def extract_score(pattern, text):
+        # This function finds the pattern regardless of surrounding markdown
         match = re.search(pattern, text, re.IGNORECASE)
         return int(match.group(1)) if match else 0
-    # These patterns use '.*?' to flexibly match the text, ignoring any formatting like '**'
-    scores['greeting'] = extract_score(r"Professional Greeting & Introduction.*?Score:\s*(\d{1,2})", report_text)
-    scores['listening'] = extract_score(r"Active Listening & Empathy.*?Score:\s*(\d{1,2})", report_text)
-    scores['understanding_needs'] = extract_score(r"Understanding Customer’s Needs.*?Score:\s*(\d{1,2})", report_text)
-    scores['product_explanation'] = extract_score(r"Product/Service Explanation.*?Score:\s*(\d{1,2})", report_text)
-    scores['personalization'] = extract_score(r"Personalization & Lifestyle Suitability.*?Score:\s*(\d{1,2})", report_text)
-    scores['objection_handling'] = extract_score(r"Handling Objections & Answering Queries.*?Score:\s*(\d{1,2})", report_text)
-    scores['pricing_communication'] = extract_score(r"Pricing & Value Communication.*?Score:\s*(\d{1,2})", report_text)
-    scores['trust_building'] = extract_score(r"Trust & Confidence Building.*?Score:\s*(\d{1,2})", report_text)
-    scores['call_closure'] = extract_score(r"Call Closure & Next Step Commitment.*?Score:\s*(\d{1,2})", report_text)
-    logging.info(f"📊 Parsed Scores (Ultimate Fix): {scores}")
-    return scores
 
+    # These patterns are now simplified to match the plain text,
+    # relying on re.search to find them within the formatted line.
+    scores['greeting'] = extract_score(r"Professional Greeting & Introduction Score:\s*(\d{1,2})", report_text)
+    scores['listening'] = extract_score(r"Active Listening & Empathy Score:\s*(\d{1,2})", report_text)
+    scores['understanding_needs'] = extract_score(r"Understanding Customer’s Needs Score:\s*(\d{1,2})", report_text)
+    scores['product_explanation'] = extract_score(r"Product/Service Explanation Score:\s*(\d{1,2})", report_text)
+    scores['personalization'] = extract_score(r"Personalization & Lifestyle Suitability Score:\s*(\d{1,2})", report_text)
+    scores['objection_handling'] = extract_score(r"Handling Objections & Answering Queries Score:\s*(\d{1,2})", report_text)
+    scores['pricing_communication'] = extract_score(r"Pricing & Value Communication Score:\s*(\d{1,2})", report_text)
+    scores['trust_building'] = extract_score(r"Trust & Confidence Building Score:\s*(\d{1,2})", report_text)
+    scores['call_closure'] = extract_score(r"Call Closure & Next Step Commitment Score:\s*(\d{1,2})", report_text)
+    
+    logging.info(f"📊 Parsed Scores (The Final Solution): {scores}")
+    return scores
 def generate_openai_report(transcript):
     logging.info("📝 Generating OpenAI CRM report...")
     prompt = f'''
