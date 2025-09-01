@@ -197,7 +197,7 @@ def generate_openai_report(transcript):
         * **Pricing & Value Communication Score:** __/10
 
     * **Trust & Confidence Building:** (Did the agent build credibility through testimonials, explaining expertise, or maintaining a confident and reassuring tone?)
-        * **Analysis:** [Your brief analysis here]
+        * **Analysis:** [Your brief analysis.
         * **Trust & Confidence Building Score:** __/10
 
     * **Call Closure & Next Step Commitment:** (Did the agent summarize the call, clearly define the next step (e.g., booking a consultation), and gain commitment from the customer?)
@@ -220,34 +220,32 @@ def generate_openai_report(transcript):
         raise
 
 # === Endpoints ===
-
 @app.post("/generate-report")
 async def generate_report_endpoint(request: Request):
-    try:
-        data = await request.json()
-        file_id = data.get("file_id")
-        if not file_id:
-            return JSONResponse(status_code=400, content={"error": "Missing file_id"})
+    try:
+        data = await request.json()
+        file_id = data.get("file_id")
+        if not file_id:
+            return JSONResponse(status_code=400, content={"error": "Missing file_id"})
 
-        mp3_path = download_mp3_from_drive(file_id)
-        
-        chunks = split_audio(mp3_path)
-        full_transcript = ""
-        for chunk_path in chunks:
-            full_transcript += transcribe_audio(chunk_path) + " "
-            os.remove(chunk_path)
-        os.remove(mp3_path)
-
-        report_text = generate_openai_report(full_transcript.strip())
+        mp3_path = download_mp3_from_drive(file_id)
         
-        # --- ADD THIS LINE ---
+        chunks = split_audio(mp3_path)
+        full_transcript = ""
+        for chunk_path in chunks:
+            full_transcript += transcribe_audio(chunk_path) + " "
+            os.remove(chunk_path)
+        os.remove(mp3_path)
+
+        report_text = generate_openai_report(full_transcript.strip())
+        
+        # This is the debugging line we added. It's safe to keep for now.
         logging.info(f"--- RAW REPORT TEXT ---\n{report_text}\n--- END RAW REPORT TEXT ---")
-        # ---------------------
 
-        scores = parse_scores_from_report(report_text)
+        scores = parse_scores_from_report(report_text)
 
-        return {"report": report_text, "scores": scores}
+        return {"report": report_text, "scores": scores}
 
-    except Exception as e:
-        logging.exception("❌ Report generation failed")
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    except Exception as e:
+        logging.exception("❌ Report generation failed")
+        return JSONResponse(status_code=500, content={"error": str(e)})
