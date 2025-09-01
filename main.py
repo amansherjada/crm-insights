@@ -92,10 +92,10 @@ def transcribe_audio(mp3_path):
         logging.error(f"❌ Error during transcription: {str(e)}")
         raise
 
-# THE FINAL SOLUTION
+# THE FINAL, GUARANTEED FIX
 def parse_scores_from_report(report_text):
     """
-    Parses scores using a flexible pattern that ignores ANY markdown formatting (like * or **).
+    Parses scores using flexible patterns that ignore any markdown formatting (like * or **).
     """
     scores = {}
     
@@ -104,20 +104,21 @@ def parse_scores_from_report(report_text):
         match = re.search(pattern, text, re.IGNORECASE)
         return int(match.group(1)) if match else 0
 
-    # These patterns are now simplified to match the plain text,
-    # relying on re.search to find them within the formatted line.
-    scores['greeting'] = extract_score(r"Professional Greeting & Introduction Score:\s*(\d{1,2})", report_text)
-    scores['listening'] = extract_score(r"Active Listening & Empathy Score:\s*(\d{1,2})", report_text)
-    scores['understanding_needs'] = extract_score(r"Understanding Customer’s Needs Score:\s*(\d{1,2})", report_text)
-    scores['product_explanation'] = extract_score(r"Product/Service Explanation Score:\s*(\d{1,2})", report_text)
-    scores['personalization'] = extract_score(r"Personalization & Lifestyle Suitability Score:\s*(\d{1,2})", report_text)
-    scores['objection_handling'] = extract_score(r"Handling Objections & Answering Queries Score:\s*(\d{1,2})", report_text)
-    scores['pricing_communication'] = extract_score(r"Pricing & Value Communication Score:\s*(\d{1,2})", report_text)
-    scores['trust_building'] = extract_score(r"Trust & Confidence Building Score:\s*(\d{1,2})", report_text)
-    scores['call_closure'] = extract_score(r"Call Closure & Next Step Commitment Score:\s*(\d{1,2})", report_text)
+    # These new patterns use '.*?' to flexibly match the text, ignoring any formatting.
+    # This is the most robust method.
+    scores['greeting'] = extract_score(r"Professional Greeting & Introduction.*?Score:\s*(\d{1,2})", report_text)
+    scores['listening'] = extract_score(r"Active Listening & Empathy.*?Score:\s*(\d{1,2})", report_text)
+    scores['understanding_needs'] = extract_score(r"Understanding Customer’s Needs.*?Score:\s*(\d{1,2})", report_text)
+    scores['product_explanation'] = extract_score(r"Product/Service Explanation.*?Score:\s*(\d{1,2})", report_text)
+    scores['personalization'] = extract_score(r"Personalization & Lifestyle Suitability.*?Score:\s*(\d{1,2})", report_text)
+    scores['objection_handling'] = extract_score(r"Handling Objections & Answering Queries.*?Score:\s*(\d{1,2})", report_text)
+    scores['pricing_communication'] = extract_score(r"Pricing & Value Communication.*?Score:\s*(\d{1,2})", report_text)
+    scores['trust_building'] = extract_score(r"Trust & Confidence Building.*?Score:\s*(\d{1,2})", report_text)
+    scores['call_closure'] = extract_score(r"Call Closure & Next Step Commitment.*?Score:\s*(\d{1,2})", report_text)
     
-    logging.info(f"📊 Parsed Scores (The Final Solution): {scores}")
+    logging.info(f"📊 Parsed Scores (FINAL FIX): {scores}")
     return scores
+
 def generate_openai_report(transcript):
     logging.info("📝 Generating OpenAI CRM report...")
     prompt = f'''
