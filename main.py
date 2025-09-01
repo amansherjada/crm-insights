@@ -116,92 +116,100 @@ def transcribe_audio(mp3_path):
         logging.error(f"❌ Error during transcription: {str(e)}")
         raise
 
+def parse_scores_from_report(report_text):
+    """
+    Parses scores from the generated report text using regular expressions.
+    """
+    scores = {}
+    
+    def extract_score(pattern, text):
+        match = re.search(pattern, text, re.IGNORECASE)
+        return int(match.group(1)) if match else 0
+
+    scores['greeting'] = extract_score(r"Professional Greeting & Introduction Score:\s*(\d{1,2})", report_text)
+    scores['listening'] = extract_score(r"Active Listening & Empathy Score:\s*(\d{1,2})", report_text)
+    scores['understanding_needs'] = extract_score(r"Understanding Customer’s Needs Score:\s*(\d{1,2})", report_text)
+    scores['product_explanation'] = extract_score(r"Product/Service Explanation Score:\s*(\d{1,2})", report_text)
+    scores['personalization'] = extract_score(r"Personalization & Lifestyle Suitability Score:\s*(\d{1,2})", report_text)
+    scores['objection_handling'] = extract_score(r"Handling Objections & Answering Queries Score:\s*(\d{1,2})", report_text)
+    scores['pricing_communication'] = extract_score(r"Pricing & Value Communication Score:\s*(\d{1,2})", report_text)
+    scores['trust_building'] = extract_score(r"Trust & Confidence Building Score:\s*(\d{1,2})", report_text)
+    scores['call_closure'] = extract_score(r"Call Closure & Next Step Commitment Score:\s*(\d{1,2})", report_text)
+    
+    logging.info(f"📊 Parsed Scores: {scores}")
+    return scores
+
+# REPLACED FUNCTION WITH NEW PROMPT
 def generate_openai_report(transcript):
-    """Generate a report using OpenAI GPT."""
+    """
+    Generate a report using OpenAI GPT with a structured scoring section.
+    """
     logging.info("📝 Generating OpenAI CRM report...")
 
     prompt = f"""
-    📞 [CRM Call Audit Evaluation Prompt – First-Time Inquiry Call]
+    You are a senior customer experience auditor. Analyze the following call transcript and provide a detailed evaluation based ONLY on the provided text.
 
-    You are a senior customer experience auditor reviewing how a CRM executive handled a first-time inquiry call. Analyze this transcript:
-
+    **Transcript:**
+    ---
     {transcript}
+    ---
 
-    Your job is to assess:
+    **Instructions:**
+    Evaluate the call based on the 9 parameters below. For each parameter, provide a brief analysis and a score. The output for each parameter MUST be in the format "Parameter Name Score: [Score]/[Max Score]".
 
-    1. What kind of customer this was (e.g., Price-sensitive, Confused, Serious buyer, Skeptical, Just Exploring)
-    2. Whether the CRM delivered a confident, informative pitch.
-    3. If all the customer's questions and objections were handled properly.
-    4. Whether the lead was moved forward effectively.
+    ---
+    **[CALL ANALYSIS REPORT]**
 
-    --- 
+    **1. Overall Summary & Customer Intent:**
+    Briefly summarize the call's purpose and outcome. Identify the customer's primary intent (e.g., Price-sensitive, Serious buyer, Confused, Just Exploring).
 
-    1. **Customer Type & Intent:**
-       - What kind of customer was this? What clues (words, tone, objections) helped you identify this?
+    **2. Detailed Parameter Evaluation:**
 
-    2. **Call Opening & Tone Matching:**
-       - Did the CRM greet the customer professionally and with warmth?
-       - Was the CRM's tone confident, friendly, and aligned with the customer’s energy?
-       - Did the CRM actively listen and allow the client to speak without interruption? 
-       - Score: __/10
+    * **Professional Greeting & Introduction:** (Did the agent sound professional, state their name and the company's name clearly, and set a positive tone?)
+        * **Analysis:** [Your brief analysis here]
+        * **Professional Greeting & Introduction Score:** __/15
 
-    3. **CRM Pitch & Communication Quality:**
-       - Did the CRM ask the right qualifying questions?
-       - Was the brand/service introduced clearly?
-       - Were key USPs conveyed? (customization, natural look, celebrity clientele, etc.)
-       - Did the CRM guide the customer toward a consultation or next step?
-       - Score: __/10
+    * **Active Listening & Empathy:** (Did the agent listen without interrupting, acknowledge the customer's points, and show empathy towards their concerns?)
+        * **Analysis:** [Your brief analysis here]
+        * **Active Listening & Empathy Score:** __/15
 
-    4. **Customer Questions & Objection Handling:**
-       - What were the main questions or concerns raised by the customer?
-       - Did the CRM address all queries properly?
-       - Were objections (price, maintenance, surgery fear, etc.) handled confidently?
-       - Score: __/10
+    * **Understanding Customer’s Needs (Problem Diagnosis):** (Did the agent ask effective questions to understand the customer's specific problem, history, and desired outcome?)
+        * **Analysis:** [Your brief analysis here]
+        * **Understanding Customer’s Needs Score:** __/10
 
-    5. **Missed Opportunities or Gaps:**
-       - What information was left out or under-explained?
-       - Did the CRM miss any chance to build trust, share a testimonial, or clarify a next step?
+    * **Product/Service Explanation (Hair Systems & Solutions):** (How clearly and confidently did the agent explain the solutions, their benefits, and the process?)
+        * **Analysis:** [Your brief analysis here]
+        * **Product/Service Explanation Score:** __/10
 
-    6. **Call Outcome:**
-       - Was a consultation booked? If not, was the next step explained clearly (follow-up, visit, etc.)? 
-       - Was a follow-up planned?
-       - ✔ Call Status: Booked / Follow-up / Undecided / Not Interested
+    * **Personalization & Lifestyle Suitability:** (Did the agent connect the solution to the customer's personal lifestyle, job, or activities mentioned?)
+        * **Analysis:** [Your brief analysis here]
+        * **Personalization & Lifestyle Suitability Score:** __/10
 
-    7. **Customer Tag (Pick One):**
-       🔘 Price-sensitive
-       🔘 Confused / Over-researching
-       🔘 Serious Buyer
-       🔘 Just Exploring
-       🔘 Referral / Follower
-       🔘 Skeptical / Fearful
+    * **Handling Objections & Answering Queries:** (How effectively were the customer's objections (e.g., price, maintenance, fear) and questions addressed?)
+        * **Analysis:** [Your brief analysis here]
+        * **Handling Objections & Answering Queries Score:** __/10
 
-    8. **Action Required (Pick One):**
-       🔘 No Action – Call handled well
-       🔘 Minor Feedback – Needs polishing
-       🔘 Coaching Required – Moderate gaps in handling
-       🔘 Retraining Needed – Major pitch or process issues
-       🔘 Escalate – Serious concern or customer mishandling
+    * **Pricing & Value Communication:** (Was pricing explained clearly? Did the agent effectively communicate the value to justify the cost?)
+        * **Analysis:** [Your brief analysis here]
+        * **Pricing & Value Communication Score:** __/10
 
-    --- 
+    * **Trust & Confidence Building:** (Did the agent build credibility through testimonials, explaining expertise, or maintaining a confident and reassuring tone?)
+        * **Analysis:** [Your brief analysis here]
+        * **Trust & Confidence Building Score:** __/10
 
-    ✅ **Final Verdict & Recommendation:**
-       - Was the call handled effectively? What should be the immediate next step (for the CRM or the lead)?
+    * **Call Closure & Next Step Commitment:** (Did the agent summarize the call, clearly define the next step (e.g., booking a consultation), and gain commitment from the customer?)
+        * **Analysis:** [Your brief analysis here]
+        * **Call Closure & Next Step Commitment Score:** __/10
 
-    --- 
-
-    🧮 **Scorecard (Out of 10)**:
-       - Customer Identification Accuracy: __/10
-       - Tone & Opening: __/10
-       - CRM Pitch & Info Delivery: __/10
-       - Handling of Questions & Objections: __/10
-       - Overall Lead Handling Quality: __/10
+    **3. Final Verdict & Recommendation:**
+    Provide a final assessment of the call quality and recommend the next action for the agent (e.g., No Action, Minor Feedback, Coaching Required).
     """
     try:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=1500,
-            temperature=0.7
+            max_tokens=2048,
+            temperature=0.5
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -218,15 +226,21 @@ async def generate_report_endpoint(request: Request):
         if not file_id:
             return JSONResponse(status_code=400, content={"error": "Missing file_id"})
 
-        # Download MP3 file and transcribe it
         mp3_path = download_mp3_from_drive(file_id)
-        transcript = transcribe_audio(mp3_path)
+        
+        # Using your existing split and transcribe logic
+        chunks = split_audio(mp3_path)
+        full_transcript = ""
+        for chunk_path in chunks:
+            full_transcript += transcribe_audio(chunk_path) + " "
+            os.remove(chunk_path)
         os.remove(mp3_path)
 
-        # Generate report using OpenAI GPT
-        report = generate_openai_report(transcript)
+        report_text = generate_openai_report(full_transcript.strip())
+        scores = parse_scores_from_report(report_text)
 
-        return {"report": report}
+        # Return a structured JSON object with BOTH the report and the scores
+        return {"report": report_text, "scores": scores}
 
     except Exception as e:
         logging.exception("❌ Report generation failed")
