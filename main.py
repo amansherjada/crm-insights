@@ -223,28 +223,31 @@ def generate_openai_report(transcript):
 
 @app.post("/generate-report")
 async def generate_report_endpoint(request: Request):
-    try:
-        data = await request.json()
-        file_id = data.get("file_id")
-        if not file_id:
-            return JSONResponse(status_code=400, content={"error": "Missing file_id"})
+    try:
+        data = await request.json()
+        file_id = data.get("file_id")
+        if not file_id:
+            return JSONResponse(status_code=400, content={"error": "Missing file_id"})
 
-        mp3_path = download_mp3_from_drive(file_id)
+        mp3_path = download_mp3_from_drive(file_id)
+        
+        chunks = split_audio(mp3_path)
+        full_transcript = ""
+        for chunk_path in chunks:
+            full_transcript += transcribe_audio(chunk_path) + " "
+            os.remove(chunk_path)
+        os.remove(mp3_path)
+
+        report_text = generate_openai_report(full_transcript.strip())
         
-        # Using your existing split and transcribe logic
-        chunks = split_audio(mp3_path)
-        full_transcript = ""
-        for chunk_path in chunks:
-            full_transcript += transcribe_audio(chunk_path) + " "
-            os.remove(chunk_path)
-        os.remove(mp3_path)
+        # --- ADD THIS LINE ---
+        logging.info(f"--- RAW REPORT TEXT ---\n{report_text}\n--- END RAW REPORT TEXT ---")
+        # ---------------------
 
-        report_text = generate_openai_report(full_transcript.strip())
-        scores = parse_scores_from_report(report_text)
+        scores = parse_scores_from_report(report_text)
 
-        # Return a structured JSON object with BOTH the report and the scores
-        return {"report": report_text, "scores": scores}
+        return {"report": report_text, "scores": scores}
 
-    except Exception as e:
-        logging.exception("❌ Report generation failed")
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    except Exception as e:
+        logging.exception("❌ Report generation failed")
+        return JSONResponse(status_code=500, content={"error": str(e)})
