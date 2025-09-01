@@ -189,7 +189,7 @@ def generate_openai_report(transcript):
         logging.error(f"❌ Error during OpenAI report generation: {str(e)}")
         raise
 
-# Cleaned-up version without the extra log
+# DEBUG VERSION - WITH LOGGING
 @app.post("/generate-report")
 async def generate_report_endpoint(request: Request):
     try:
@@ -209,6 +209,9 @@ async def generate_report_endpoint(request: Request):
 
         report_text = generate_openai_report(full_transcript.strip())
         
+        # This is the crucial line we are adding back in
+        logging.info(f"---\nRAW REPORT TEXT:\n{report_text}\n---")
+
         scores = parse_scores_from_report(report_text)
 
         return {"report": report_text, "scores": scores}
