@@ -1,5 +1,6 @@
 # main.py
-import os, re, json, tempfile, logging, subprocess
+import os, re, json, tempfile, logging, subprocess, requests
+from typing import List, Dict, Optional, Tuple
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,14 +8,12 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from openai import OpenAI
-import requests
 
 logging.basicConfig(level=logging.INFO)
 
-# --- ENV ---
+# ========== ENV ==========
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GCRED_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-
+GCRED_PATH     = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 if not OPENAI_API_KEY:
     raise RuntimeError("❌ OPENAI_API_KEY not set.")
 if not GCRED_PATH or not os.path.exists(GCRED_PATH):
@@ -22,7 +21,7 @@ if not GCRED_PATH or not os.path.exists(GCRED_PATH):
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# --- APP ---
+# ========== APP ==========
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -31,7 +30,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- HELPERS ---
+# ========== CONSTANTS ==========
+JSON_START = "<<<SCORES_9_JSON_START>>>"
+JSON_END   = "<<<SCORES_9_JSON_END>>>"
+
+# ========== HELPERS ==========
 def clean_transcript(text: str) -> str:
     text = re.sub(r"\\an\d+\\?.*?", "", text)
     text = re.sub(r"[-–—_=*#{}<>[\]\"'`|]", "", text)
@@ -47,24 +50,25 @@ def download_mp3_from_drive(file_id: str) -> str:
     )
     creds.refresh(GoogleAuthRequest())
     drive_service = build("drive", "v3", credentials=creds)
-    file_metadata = drive_service.files().get(fileId=file_id, fields="name").execute()
-    base = os.path.splitext(file_metadata["name"])[0]
+    meta = drive_service.files().get(fileId=file_id, fields="name").execute()
+    base = os.path.splitext(meta["name"])[0]
+
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
     headers = {"Authorization": f"Bearer {creds.token}"}
     r = requests.get(url, headers=headers, timeout=120)
     if r.status_code != 200:
         raise RuntimeError(f"Failed to download MP3: {r.status_code} - {r.text}")
+
     mp3_path = os.path.join(tempfile.gettempdir(), base + ".mp3")
     with open(mp3_path, "wb") as f:
         f.write(r.content)
     return mp3_path
 
-def split_audio(mp3_path: str, chunk_seconds: int = 600) -> list[str]:
+def split_audio(mp3_path: str, chunk_seconds: int = 600) -> List[str]:
     logging.info("🔪 Splitting audio into chunks...")
     outdir = tempfile.mkdtemp()
     pattern = os.path.join(outdir, "chunk_%03d.mp3")
     try:
-        # Convert to 16k mono mp3 segments
         subprocess.run(
             [
                 "ffmpeg", "-y", "-i", mp3_path, "-f", "segment",
@@ -80,6 +84,7 @@ def split_audio(mp3_path: str, chunk_seconds: int = 600) -> list[str]:
     except subprocess.CalledProcessError as e:
         logging.error("❌ FFmpeg splitting failed: %s", e.stderr.decode("utf-8", errors="ignore"))
         raise RuntimeError("FFmpeg splitting failed")
+
     chunks = sorted(os.path.join(outdir, f) for f in os.listdir(outdir) if f.endswith(".mp3"))
     if not chunks:
         raise RuntimeError("No chunks produced by ffmpeg.")
@@ -89,122 +94,162 @@ def transcribe_audio(mp3_path: str) -> str:
     logging.info(f"🎧 Transcribing audio: {mp3_path}")
     with open(mp3_path, "rb") as fh:
         tr = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=fh,
-            response_format="text",
-            language="en",
+            model="whisper-1", file=fh, response_format="text", language="en"
         )
     return tr.strip()
 
-def generate_openai_report(transcript: str) -> str:
+# ========== REPORT GEN ==========
+def generate_openai_report(full_transcript: str) -> str:
+    """
+    Human-readable report WITH the Legacy 9-Parameter Scorecard (numbers),
+    then a machine-readable JSON block between markers for reliable parsing.
+    """
     logging.info("📝 Generating OpenAI CRM report...")
     prompt = f"""
-You are a senior customer experience auditor. Analyze the call transcript and provide a detailed evaluation.
+📞 [CRM Call Audit Evaluation – First-Time Inquiry Call]
 
-TRANSCRIPT
----
-{transcript}
+You are a senior customer experience auditor reviewing how a CRM executive handled a first-time inquiry call. Analyze this transcript:
+
+{full_transcript}
+
+Your job is to assess:
+
+1. What kind of customer this was (e.g., Price-sensitive, Confused, Serious buyer, Skeptical, Just Exploring)
+2. Whether the CRM delivered a confident, informative pitch.
+3. If all the customer's questions and objections were handled properly.
+4. Whether the lead was moved forward effectively.
+
+--- 
+
+1) **Customer Type & Intent:**
+   - Identify the type and cite clues.
+
+2) **Call Opening & Tone Matching:**
+   - Was greeting professional/warm?
+   - Was tone confident and aligned with customer?
+   - Did the CRM actively listen without interrupting?
+   - Score: __/10
+
+3) **CRM Pitch & Communication Quality:**
+   - Qualifying questions asked?
+   - Clear brand/service intro?
+   - Key USPs conveyed (customization, natural look, celebs, etc.)?
+   - Guided to clear next step?
+   - Score: __/10
+
+4) **Questions & Objection Handling:**
+   - Which questions/objections?
+   - Were they handled confidently?
+   - Score: __/10
+
+5) **Missed Opportunities or Gaps:**
+   - What was under-explained or missed?
+
+6) **Call Outcome:**
+   - Consultation booked? If not, what next step?
+   - Follow-up planned?
+   - ✔ Call Status: Booked / Follow-up / Undecided / Not Interested
+
+7) **Customer Tag (Pick One):**
+   Price-sensitive | Confused/Over-researching | Serious Buyer | Just Exploring | Referral/Follower | Skeptical/Fearful
+
+8) **Action Required (Pick One):**
+   No Action | Minor Feedback | Coaching Required | Retraining Needed | Escalate
+
 ---
 
-OUTPUT FORMAT
-1) First write the full human-readable report exactly as specified below (each parameter must include a line '... Score: X/Max').
-2) Then, on a NEW line, output ONLY this JSON between markers for machine parsing:
-<<<SCORES_JSON_START>>>
+✅ **Final Verdict & Recommendation:** Concise next steps for CRM and lead.
+
+---
+
+📊 **Legacy 9-Parameter Scorecard (fill REAL numbers, keep EXACT labels):**
+- Professional Greeting & Introduction Score: __/15
+- Active Listening & Empathy Score: __/15
+- Understanding Customer’s Needs Score: __/10
+- Product/Service Explanation Score: __/10
+- Personalization & Lifestyle Suitability Score: __/10
+- Handling Objections & Answering Queries Score: __/10
+- Pricing & Value Communication Score: __/10
+- Trust & Confidence Building Score: __/10
+- Call Closure & Next Step Commitment Score: __/10
+
+RULES:
+- Replace every "__" with integers.
+- Keep labels and "Score:" pattern so an automated parser can read it.
+
+---
+IMPORTANT: After finishing the human-readable report above,
+append on a NEW line ONLY this machine-readable JSON (no extra words, no code fences)
+between these exact markers:
+
+{JSON_START}
 {{ "greeting": <int>, "listening": <int>, "understanding_needs": <int>, "product_explanation": <int>, "personalization": <int>, "objection_handling": <int>, "pricing_communication": <int>, "trust_building": <int>, "call_closure": <int> }}
-<<<SCORES_JSON_END>>>
-
-[CALL ANALYSIS REPORT]
-
-1. Overall Summary & Customer Intent
-
-2. Detailed Parameter Evaluation:
-* Professional Greeting & Introduction
-  - Analysis: …
-  - Professional Greeting & Introduction Score: __/15
-
-* Active Listening & Empathy
-  - Analysis: …
-  - Active Listening & Empathy Score: __/15
-
-* Understanding Customer’s Needs (Problem Diagnosis)
-  - Analysis: …
-  - Understanding Customer’s Needs Score: __/10
-
-* Product/Service Explanation (Hair Systems & Solutions)
-  - Analysis: …
-  - Product/Service Explanation Score: __/10
-
-* Personalization & Lifestyle Suitability
-  - Analysis: …
-  - Personalization & Lifestyle Suitability Score: __/10
-
-* Handling Objections & Answering Queries
-  - Analysis: …
-  - Handling Objections & Answering Queries Score: __/10
-
-* Pricing & Value Communication
-  - Analysis: …
-  - Pricing & Value Communication Score: __/10
-
-* Trust & Confidence Building
-  - Analysis: …
-  - Trust & Confidence Building Score: __/10
-
-* Call Closure & Next Step Commitment
-  - Analysis: …
-  - Call Closure & Next Step Commitment Score: __/10
-
-3. Final Verdict & Recommendation
+{JSON_END}
 """
     resp = client.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=2200,
+        max_tokens=2400,
         temperature=0.2,
     )
     return resp.choices[0].message.content.strip()
 
-def extract_scores_from_json_block(report_text: str) -> dict | None:
+def extract_json_and_strip(report_text: str) -> Tuple[Optional[Dict[str,int]], str]:
+    """
+    Extract the JSON between markers; return (scores_dict, cleaned_report_without_json).
+    If extraction fails, scores_dict=None and report_text is returned unchanged.
+    """
     try:
-        start_tag, end_tag = "<<<SCORES_JSON_START>>>", "<<<SCORES_JSON_END>>>"
-        start = report_text.index(start_tag) + len(start_tag)
-        end = report_text.index(end_tag, start)
-        data = json.loads(report_text[start:end].strip())
-        keys = [
-            "greeting","listening","understanding_needs","product_explanation",
-            "personalization","objection_handling","pricing_communication",
-            "trust_building","call_closure",
-        ]
-        return {k: int(data.get(k, 0)) for k in keys}
-    except Exception as e:
-        logging.warning(f"⚠️ JSON score parse failed; falling back to regex. {e}")
-        return None
+        start = report_text.index(JSON_START) + len(JSON_START)
+        end   = report_text.index(JSON_END, start)
+        json_str = report_text[start:end].strip()
+        data = json.loads(json_str)
 
-# tolerant regex fallback
-def parse_scores_from_report(report_text: str) -> dict:
-    def grab(label_regex: str, text: str) -> int:
+        # Remove the entire JSON block with markers from the human report
+        cleaned = report_text[:report_text.index(JSON_START)].rstrip()
+        return (
+            {
+                "greeting": int(data.get("greeting", 0)),
+                "listening": int(data.get("listening", 0)),
+                "understanding_needs": int(data.get("understanding_needs", 0)),
+                "product_explanation": int(data.get("product_explanation", 0)),
+                "personalization": int(data.get("personalization", 0)),
+                "objection_handling": int(data.get("objection_handling", 0)),
+                "pricing_communication": int(data.get("pricing_communication", 0)),
+                "trust_building": int(data.get("trust_building", 0)),
+                "call_closure": int(data.get("call_closure", 0)),
+            },
+            cleaned,
+        )
+    except Exception as e:
+        logging.warning(f"⚠️ JSON block extraction failed, will fallback to regex. {e}")
+        return None, report_text
+
+# Tolerant regex fallback for the 9 legacy params
+def parse_scores_from_report(report_text: str) -> Dict[str, int]:
+    def grab(label_regex: str) -> int:
         m = re.search(
             label_regex + r".{0,200}?Score\s*[:\-]?\s*(\d{1,2})\s*/\s*\d{1,2}",
-            text,
+            report_text,
             re.IGNORECASE | re.DOTALL,
         )
         return int(m.group(1)) if m else 0
 
     scores = {
-        "greeting": grab(r"Professional\s+Greeting\s*&\s*Introduction", report_text),
-        "listening": grab(r"Active\s+Listening\s*&\s*Empathy", report_text),
-        "understanding_needs": grab(r"Understanding\s+Customer[’']?s\s+Needs", report_text),
-        "product_explanation": grab(r"Product/?Service\s+Explanation", report_text),
-        "personalization": grab(r"Personalization\s*&\s*Lifestyle(?:\s*Suitability)?", report_text),
-        "objection_handling": grab(r"Handling\s+Objections\s*&\s*Answering\s+Queries", report_text),
-        "pricing_communication": grab(r"Pricing\s*&\s*Value\s+Communication", report_text),
-        "trust_building": grab(r"Trust\s*&\s*Confidence\s+Building", report_text),
-        "call_closure": grab(r"Call\s+Closure\s*&\s*Next\s+Step\s+Commitment", report_text),
+        "greeting":               grab(r"Professional\s+Greeting\s*&\s*Introduction"),
+        "listening":              grab(r"Active\s+Listening\s*&\s*Empathy"),
+        "understanding_needs":    grab(r"Understanding\s+Customer[’']?s\s+Needs"),
+        "product_explanation":    grab(r"Product/?Service\s+Explanation"),
+        "personalization":        grab(r"Personalization\s*&\s*Lifestyle(?:\s*Suitability)?"),
+        "objection_handling":     grab(r"Handling\s+Objections\s*&\s*Answering\s*Queries"),
+        "pricing_communication":  grab(r"Pricing\s*&\s*Value\s*Communication"),
+        "trust_building":         grab(r"Trust\s*&\s*Confidence\s*Building"),
+        "call_closure":           grab(r"Call\s*Closure\s*&\s*Next\s*Step\s*Commitment"),
     }
     logging.info(f"📊 Parsed Scores (regex fallback): {scores}")
     return scores
 
-# --- ROUTE ---
+# ========== ROUTE ==========
 @app.post("/generate-report")
 async def generate_report_endpoint(request: Request):
     try:
@@ -216,13 +261,12 @@ async def generate_report_endpoint(request: Request):
         mp3_path = download_mp3_from_drive(file_id)
         chunks = split_audio(mp3_path)
 
-        # build transcript
-        parts: list[str] = []
+        parts: List[str] = []
         try:
             for p in chunks:
                 parts.append(transcribe_audio(p))
         finally:
-            # cleanup chunk files
+            # cleanup
             for p in chunks:
                 try: os.remove(p)
                 except: pass
@@ -230,15 +274,17 @@ async def generate_report_endpoint(request: Request):
             except: pass
 
         full_transcript = clean_transcript(" ".join(parts).strip())
-        report_text = generate_openai_report(full_transcript)
+        raw_output = generate_openai_report(full_transcript)
 
-        # 1) JSON scores preferred
-        scores = extract_scores_from_json_block(report_text)
-        # 2) fallback to regex if needed
+        # 1) Try to extract JSON scores & strip from report (so PDF won't show JSON)
+        scores, cleaned_report = extract_json_and_strip(raw_output)
+
+        # 2) If JSON failed, fallback to regex; keep full text as report
         if scores is None:
-            scores = parse_scores_from_report(report_text)
+            scores = parse_scores_from_report(raw_output)
+            cleaned_report = raw_output
 
-        return {"report": report_text, "scores": scores}
+        return {"report": cleaned_report, "scores": scores}
 
     except Exception as e:
         logging.exception("❌ Report generation failed")
