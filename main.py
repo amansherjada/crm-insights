@@ -92,27 +92,25 @@ def transcribe_audio(mp3_path):
         logging.error(f"❌ Error during transcription: {str(e)}")
         raise
 
-# BULLETPROOF PARSER
+# BULLETPROOF PARSER v2
 def parse_scores_from_report(report_text):
     """
-    Parses scores using bulletproof patterns that are insensitive to whitespace variations.
+    Parses scores using bulletproof patterns that are insensitive to whitespace and quote variations.
     """
     scores = {}
     def extract_score(pattern, text):
         match = re.search(pattern, text, re.IGNORECASE)
         return int(match.group(1)) if match else 0
-    # These patterns replace all spaces with '\\s+' to match any kind of whitespace,
-    # making them robust against invisible characters from the AI.
     scores['greeting'] = extract_score(r"Professional\s+Greeting\s+&\s+Introduction.*?Score:\s*(\d{1,2})", report_text)
     scores['listening'] = extract_score(r"Active\s+Listening\s+&\s+Empathy.*?Score:\s*(\d{1,2})", report_text)
-    scores['understanding_needs'] = extract_score(r"Understanding\s+Customer’s\s+Needs.*?Score:\s*(\d{1,2})", report_text)
+    scores['understanding_needs'] = extract_score(r"Understanding\s+Customer['’]s\s+Needs.*?Score:\s*(\d{1,2})", report_text)
     scores['product_explanation'] = extract_score(r"Product/Service\s+Explanation.*?Score:\s*(\d{1,2})", report_text)
     scores['personalization'] = extract_score(r"Personalization\s+&\s+Lifestyle\s+Suitability.*?Score:\s*(\d{1,2})", report_text)
     scores['objection_handling'] = extract_score(r"Handling\s+Objections\s+&\s+Answering\s+Queries.*?Score:\s*(\d{1,2})", report_text)
     scores['pricing_communication'] = extract_score(r"Pricing\s+&\s+Value\s+Communication.*?Score:\s*(\d{1,2})", report_text)
     scores['trust_building'] = extract_score(r"Trust\s+&\s+Confidence\s+Building.*?Score:\s*(\d{1,2})", report_text)
     scores['call_closure'] = extract_score(r"Call\s+Closure\s+&\s+Next\s+Step\s+Commitment.*?Score:\s*(\d{1,2})", report_text)
-    logging.info(f"📊 Parsed Scores (Bulletproof): {scores}")
+    logging.info(f"📊 Parsed Scores (Bulletproof v2): {scores}")
     return scores
 
 def generate_openai_report(transcript):
