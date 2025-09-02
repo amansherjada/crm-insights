@@ -170,3 +170,40 @@ def generate_openai_report(transcript):
 
     * **Call Closure & Next Step Commitment:** (Did the agent summarize the call, clearly define the next step (e.g., booking a consultation), and gain commitment from the customer?)
         * **Analysis:** [Your brief analysis here]
+        * **Call Closure & Next Step Commitment Score:** __/10
+
+    **3. Final Verdict & Recommendation:**
+    Provide a final assessment of the call quality and recommend the next action for the agent (e.g., No Action, Minor Feedback, Coaching Required).
+    '''
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=2048,
+            temperature=0.5
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logging.error(f"❌ Error during OpenAI report generation: {str(e)}")
+        raise
+
+@app.post("/generate-report")
+async def generate_report_endpoint(request: Request):
+    try:
+        data = await request.json()
+        file_id = data.get("file_id")
+        if not file_id:
+            return JSONResponse(status_code=400, content={"error": "Missing file_id"})
+        mp3_path = download_mp3_from_drive(file_id)
+        chunks = split_audio(mp3_path)
+        full_transcript = ""
+        for chunk_path in chunks:
+            full_transcript += transcribe_audio(chunk_path) + " "
+            os.remove(chunk_path)
+        os.remove(mp3_path)
+        report_text = generate_openai_report(full_transcript.strip())
+        scores = parse_scores_from_report(report_text)
+        return {"report": report_text, "scores": scores}
+    except Exception as e:
+        logging.exception("❌ Report generation failed")
+        return JSONResponse(status_code=500, content={"error": str(e)})
