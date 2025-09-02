@@ -92,31 +92,27 @@ def transcribe_audio(mp3_path):
         logging.error(f"❌ Error during transcription: {str(e)}")
         raise
 
-# THE FINAL, GUARANTEED FIX
+# BULLETPROOF PARSER
 def parse_scores_from_report(report_text):
     """
-    Parses scores using flexible patterns that ignore any markdown formatting (like * or **).
+    Parses scores using bulletproof patterns that are insensitive to whitespace variations.
     """
     scores = {}
-    
     def extract_score(pattern, text):
-        # This function finds the pattern regardless of surrounding markdown
         match = re.search(pattern, text, re.IGNORECASE)
         return int(match.group(1)) if match else 0
-
-    # These new patterns use '.*?' to flexibly match the text, ignoring any formatting.
-    # This is the most robust method.
-    scores['greeting'] = extract_score(r"Professional Greeting & Introduction.*?Score:\s*(\d{1,2})", report_text)
-    scores['listening'] = extract_score(r"Active Listening & Empathy.*?Score:\s*(\d{1,2})", report_text)
-    scores['understanding_needs'] = extract_score(r"Understanding Customer’s Needs.*?Score:\s*(\d{1,2})", report_text)
-    scores['product_explanation'] = extract_score(r"Product/Service Explanation.*?Score:\s*(\d{1,2})", report_text)
-    scores['personalization'] = extract_score(r"Personalization & Lifestyle Suitability.*?Score:\s*(\d{1,2})", report_text)
-    scores['objection_handling'] = extract_score(r"Handling Objections & Answering Queries.*?Score:\s*(\d{1,2})", report_text)
-    scores['pricing_communication'] = extract_score(r"Pricing & Value Communication.*?Score:\s*(\d{1,2})", report_text)
-    scores['trust_building'] = extract_score(r"Trust & Confidence Building.*?Score:\s*(\d{1,2})", report_text)
-    scores['call_closure'] = extract_score(r"Call Closure & Next Step Commitment.*?Score:\s*(\d{1,2})", report_text)
-    
-    logging.info(f"📊 Parsed Scores (FINAL FIX): {scores}")
+    # These patterns replace all spaces with '\\s+' to match any kind of whitespace,
+    # making them robust against invisible characters from the AI.
+    scores['greeting'] = extract_score(r"Professional\s+Greeting\s+&\s+Introduction.*?Score:\s*(\d{1,2})", report_text)
+    scores['listening'] = extract_score(r"Active\s+Listening\s+&\s+Empathy.*?Score:\s*(\d{1,2})", report_text)
+    scores['understanding_needs'] = extract_score(r"Understanding\s+Customer’s\s+Needs.*?Score:\s*(\d{1,2})", report_text)
+    scores['product_explanation'] = extract_score(r"Product/Service\s+Explanation.*?Score:\s*(\d{1,2})", report_text)
+    scores['personalization'] = extract_score(r"Personalization\s+&\s+Lifestyle\s+Suitability.*?Score:\s*(\d{1,2})", report_text)
+    scores['objection_handling'] = extract_score(r"Handling\s+Objections\s+&\s+Answering\s+Queries.*?Score:\s*(\d{1,2})", report_text)
+    scores['pricing_communication'] = extract_score(r"Pricing\s+&\s+Value\s+Communication.*?Score:\s*(\d{1,2})", report_text)
+    scores['trust_building'] = extract_score(r"Trust\s+&\s+Confidence\s+Building.*?Score:\s*(\d{1,2})", report_text)
+    scores['call_closure'] = extract_score(r"Call\s+Closure\s+&\s+Next\s+Step\s+Commitment.*?Score:\s*(\d{1,2})", report_text)
+    logging.info(f"📊 Parsed Scores (Bulletproof): {scores}")
     return scores
 
 def generate_openai_report(transcript):
@@ -174,41 +170,3 @@ def generate_openai_report(transcript):
 
     * **Call Closure & Next Step Commitment:** (Did the agent summarize the call, clearly define the next step (e.g., booking a consultation), and gain commitment from the customer?)
         * **Analysis:** [Your brief analysis here]
-        * **Call Closure & Next Step Commitment Score:** __/10
-
-    **3. Final Verdict & Recommendation:**
-    Provide a final assessment of the call quality and recommend the next action for the agent (e.g., No Action, Minor Feedback, Coaching Required).
-    '''
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=2048,
-            temperature=0.5
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        logging.error(f"❌ Error during OpenAI report generation: {str(e)}")
-        raise
-
-# THE MISSING ENDPOINT FUNCTION
-@app.post("/generate-report")
-async def generate_report_endpoint(request: Request):
-    try:
-        data = await request.json()
-        file_id = data.get("file_id")
-        if not file_id:
-            return JSONResponse(status_code=400, content={"error": "Missing file_id"})
-        mp3_path = download_mp3_from_drive(file_id)
-        chunks = split_audio(mp3_path)
-        full_transcript = ""
-        for chunk_path in chunks:
-            full_transcript += transcribe_audio(chunk_path) + " "
-            os.remove(chunk_path)
-        os.remove(mp3_path)
-        report_text = generate_openai_report(full_transcript.strip())
-        scores = parse_scores_from_report(report_text)
-        return {"report": report_text, "scores": scores}
-    except Exception as e:
-        logging.exception("❌ Report generation failed")
-        return JSONResponse(status_code=500, content={"error": str(e)})
