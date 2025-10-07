@@ -43,25 +43,126 @@ def clean_transcript(text: str) -> str:
     text = re.sub(r"\d{2,}[:.]\d{2,}[:.]\d{2,}", "", text)
     return text.strip()
 
+def download_audio_file(file_id_or_url: str) -> str:
+    """
+    Download audio from either Google Drive (file ID) or S3/HTTP URL.
+    Returns path to the downloaded MP3 file.
+    """
+    # Check if it's an HTTP/HTTPS URL (S3 or other web URL)
+    if file_id_or_url.startswith('http://') or file_id_or_url.startswith('https://'):
+        logging.info(f"📥 Downloading audio from URL: {file_id_or_url}")
+        return download_from_url(file_id_or_url)
+    else:
+        # It's a Google Drive file ID
+        logging.info(f"📥 Downloading audio from Google Drive: {file_id_or_url}")
+        return download_mp3_from_drive(file_id_or_url)
+
+def download_from_url(url: str) -> str:
+    """
+    Download audio file from any HTTP/HTTPS URL (S3, etc.)
+    Returns path to the downloaded file.
+    """
+    try:
+        # Make request to download file
+        response = requests.get(url, timeout=120, stream=True)
+        
+        if response.status_code != 200:
+            raise RuntimeError(f"Failed to download from URL: {response.status_code}")
+        
+        # Determine file extension from URL or Content-Type
+        file_ext = ".mp3"  # Default
+        if url.endswith('.aac'):
+            file_ext = ".aac"
+        elif url.endswith('.wav'):
+            file_ext = ".wav"
+        elif url.endswith('.m4a'):
+            file_ext = ".m4a"
+        
+        # Generate filename from URL
+        filename = url.split('/')[-1].split('?')[0]  # Get last part of URL, remove query params
+        if not filename:
+            filename = f"audio_download_{os.urandom(8).hex()}"
+        
+        # Ensure extension
+        if not any(filename.endswith(ext) for ext in ['.mp3', '.aac', '.wav', '.m4a']):
+            filename += file_ext
+        
+        # Save to temp directory
+        file_path = os.path.join(tempfile.gettempdir(), filename)
+        
+        logging.info(f"💾 Saving audio to: {file_path}")
+        with open(file_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+        
+        # Convert to MP3 if not already MP3
+        if not file_path.endswith('.mp3'):
+            logging.info(f"🔄 Converting {file_ext} to MP3...")
+            mp3_path = file_path.rsplit('.', 1)[0] + '.mp3'
+            try:
+                subprocess.run(
+                    [
+                        "ffmpeg", "-y", "-i", file_path,
+                        "-ar", "16000", "-ac", "1", "-vn",
+                        "-codec:a", "libmp3lame",
+                        mp3_path
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                # Remove original file
+                os.remove(file_path)
+                file_path = mp3_path
+                logging.info(f"✅ Converted to MP3: {mp3_path}")
+            except subprocess.CalledProcessError as e:
+                logging.error(f"❌ FFmpeg conversion failed: {e.stderr.decode('utf-8', errors='ignore')}")
+                # Continue with original file if conversion fails
+        
+        file_size = os.path.getsize(file_path) / (1024 * 1024)  # MB
+        logging.info(f"✅ Downloaded successfully: {file_path} ({file_size:.2f} MB)")
+        
+        return file_path
+        
+    except requests.exceptions.RequestException as e:
+        logging.error(f"❌ Failed to download from URL: {e}")
+        raise RuntimeError(f"Failed to download audio from URL: {str(e)}")
+    except Exception as e:
+        logging.error(f"❌ Unexpected error downloading from URL: {e}")
+        raise RuntimeError(f"Error downloading audio: {str(e)}")
+
 def download_mp3_from_drive(file_id: str) -> str:
+    """
+    Download MP3 from Google Drive using file ID.
+    Returns path to the downloaded MP3 file.
+    """
     logging.info(f"📥 Downloading MP3 from Google Drive: {file_id}")
     creds = service_account.Credentials.from_service_account_file(
         GCRED_PATH, scopes=["https://www.googleapis.com/auth/drive.readonly"]
     )
     creds.refresh(GoogleAuthRequest())
     drive_service = build("drive", "v3", credentials=creds)
-    meta = drive_service.files().get(fileId=file_id, fields="name").execute()
-    base = os.path.splitext(meta["name"])[0]
+    
+    try:
+        meta = drive_service.files().get(fileId=file_id, fields="name").execute()
+        base = os.path.splitext(meta["name"])[0]
+    except Exception as e:
+        logging.error(f"❌ Failed to get file metadata from Drive: {e}")
+        raise RuntimeError(f"Failed to access Drive file {file_id}: {str(e)}")
 
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
     headers = {"Authorization": f"Bearer {creds.token}"}
     r = requests.get(url, headers=headers, timeout=120)
+    
     if r.status_code != 200:
-        raise RuntimeError(f"Failed to download MP3: {r.status_code} - {r.text}")
+        raise RuntimeError(f"Failed to download MP3 from Drive: {r.status_code} - {r.text}")
 
     mp3_path = os.path.join(tempfile.gettempdir(), base + ".mp3")
     with open(mp3_path, "wb") as f:
         f.write(r.content)
+    
+    logging.info(f"✅ Downloaded from Drive: {mp3_path}")
     return mp3_path
 
 def split_audio(mp3_path: str, chunk_seconds: int = 600) -> List[str]:
@@ -165,7 +266,7 @@ Your job is to assess:
 📊 **Legacy 9-Parameter Scorecard (fill REAL numbers, keep EXACT labels):**
 - Professional Greeting & Introduction Score: __/15
 - Active Listening & Empathy Score: __/15
-- Understanding Customer’s Needs Score: __/10
+- Understanding Customer's Needs Score: __/10
 - Product/Service Explanation Score: __/10
 - Personalization & Lifestyle Suitability Score: __/10
 - Handling Objections & Answering Queries Score: __/10
@@ -238,7 +339,7 @@ def parse_scores_from_report(report_text: str) -> Dict[str, int]:
     scores = {
         "greeting":               grab(r"Professional\s+Greeting\s*&\s*Introduction"),
         "listening":              grab(r"Active\s+Listening\s*&\s*Empathy"),
-        "understanding_needs":    grab(r"Understanding\s+Customer[’']?s\s+Needs"),
+        "understanding_needs":    grab(r"Understanding\s+Customer['']?s\s+Needs"),
         "product_explanation":    grab(r"Product/?Service\s+Explanation"),
         "personalization":        grab(r"Personalization\s*&\s*Lifestyle(?:\s*Suitability)?"),
         "objection_handling":     grab(r"Handling\s+Objections\s*&\s*Answering\s*Queries"),
@@ -254,25 +355,34 @@ def parse_scores_from_report(report_text: str) -> Dict[str, int]:
 async def generate_report_endpoint(request: Request):
     try:
         data = await request.json()
-        file_id = data.get("file_id")
-        if not file_id:
+        file_id_or_url = data.get("file_id")
+        
+        if not file_id_or_url:
             return JSONResponse(status_code=400, content={"error": "Missing file_id"})
+        
+        logging.info(f"🎯 Processing request for: {file_id_or_url}")
 
-        mp3_path = download_mp3_from_drive(file_id)
+        # Download audio (handles both Drive and S3/URL)
+        mp3_path = download_audio_file(file_id_or_url)
+        
+        # Split audio into chunks
         chunks = split_audio(mp3_path)
 
+        # Transcribe all chunks
         parts: List[str] = []
         try:
             for p in chunks:
                 parts.append(transcribe_audio(p))
         finally:
-            # cleanup
+            # cleanup chunks
             for p in chunks:
                 try: os.remove(p)
                 except: pass
+            # cleanup main mp3
             try: os.remove(mp3_path)
             except: pass
 
+        # Generate report
         full_transcript = clean_transcript(" ".join(parts).strip())
         raw_output = generate_openai_report(full_transcript)
 
@@ -284,6 +394,7 @@ async def generate_report_endpoint(request: Request):
             scores = parse_scores_from_report(raw_output)
             cleaned_report = raw_output
 
+        logging.info("✅ Report generated successfully")
         return {"report": cleaned_report, "scores": scores}
 
     except Exception as e:
