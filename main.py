@@ -1,6 +1,6 @@
 # main.py
 import os, re, json, tempfile, logging, subprocess, requests
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Union
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +33,9 @@ app.add_middleware(
 # ========== CONSTANTS ==========
 JSON_START = "<<<SCORES_11_JSON_START>>>"
 JSON_END   = "<<<SCORES_11_JSON_END>>>"
+
+# Score type can be int or "N/A"
+ScoreValue = Union[int, str]
 
 # ========== HELPERS ==========
 def clean_transcript(text: str) -> str:
@@ -192,268 +195,312 @@ def transcribe_audio(mp3_path: str) -> str:
 # ========== REPORT GEN ==========
 def generate_openai_report(full_transcript: str) -> str:
     """
-    Generate comprehensive CRM audit report with NEW 11-Parameter Scorecard.
-    Returns human-readable report + machine-readable JSON block.
+    Generate comprehensive CRM audit report with SMART CONDITIONAL SCORING (11 Parameters).
+    Uses GPT-4o with Hybrid Smart Approach.
+    Returns human-readable report + machine-readable JSON block with N/A support.
     """
-    logging.info("📝 Generating OpenAI CRM report with 11 parameters...")
+    logging.info("📝 Generating OpenAI CRM report with smart conditional scoring (GPT-4o)...")
     prompt = f"""
-📞 [CRM Call Audit Evaluation – First-Time Inquiry Call]
+📞 [CRM Call Audit Evaluation – Smart Conditional Scoring System]
 
-You are a senior customer experience auditor for American Hairline, reviewing how a CRM executive handled a first-time inquiry call. Analyze this transcript:
+You are a senior customer experience auditor for American Hairline, reviewing how a CRM executive handled a first-time inquiry call. Your evaluation must be FAIR and CONTEXT-AWARE.
 
+## CALL TRANSCRIPT:
 {full_transcript}
 
-Your job is to comprehensively assess the call across 11 critical parameters and provide actionable feedback.
+---
+
+## 🎯 EVALUATION INSTRUCTIONS
+
+You will assess this call using the **HYBRID SMART APPROACH** with 11 parameters. Your job is to be INTELLIGENT and FAIR - not every parameter applies to every call.
+
+### **CRITICAL SCORING LOGIC (READ CAREFULLY):**
+
+For EACH of the 11 parameters below, follow this 4-STEP DECISION PROCESS:
+
+#### **STEP 1: Was this topic discussed in the call?**
+- **YES** → Score the quality (0-10) based on how well CRM handled it, then move to next parameter
+- **NO** → Continue to STEP 2
+
+#### **STEP 2: Is this topic RELEVANT to the customer's inquiry?**
+Ask yourself: "Given what the customer was asking about, does this topic make sense for this call?"
+- **NO (completely irrelevant)** → Mark **"N/A"** and move to next parameter
+- **YES (relevant to inquiry)** → Continue to STEP 3
+
+#### **STEP 3: Evaluate CONTEXT FACTORS**
+Consider ALL of these factors:
+
+**a) Call Duration:**
+- < 2 minutes → Very short, most topics get leniency
+- 2-5 minutes → Short, optional topics get leniency
+- 5-10 minutes → Medium, core topics should be covered
+- > 10 minutes → Long, CRM had time for comprehensive discussion
+
+**b) Customer Engagement Level:**
+- **High**: Asks multiple questions, responds with interest, wants details
+- **Medium**: Asks 1-2 questions, polite but brief
+- **Low**: Rushed, monosyllabic ("okay", "fine"), just gathering basic info
+
+**c) Call Type:**
+- General inquiry → Should cover multiple topics
+- Specific question → Focus on that question only
+- Price inquiry → Focus on pricing, budget justification
+- Appointment booking → Just needs logistics, details come later
+- Quick question → Brief answer sufficient
+
+**d) Topic Priority Level:**
+- **CRITICAL** (almost always needed in general calls): Product Explanation, Budget Justification (if price discussed)
+- **IMPORTANT** (should cover if opportunity exists): Brand USPs, Understanding Needs, Greeting
+- **CONTEXTUAL** (depends on inquiry): Hairline Types, Delivery Timeline, Servicing Details
+
+#### **STEP 4: Make SMART FINAL JUDGMENT**
+
+**If topic is CRITICAL + call was general inquiry + customer engaged + topic NOT mentioned:**
+→ **Score 0-5** (CRM should have brought it up proactively)
+
+**If topic is IMPORTANT but context factors justify not mentioning:**
+→ **Mark "N/A"** (understandable omission given call context)
+
+**If topic is CONTEXTUAL and wasn't relevant to this specific inquiry:**
+→ **Mark "N/A"** (not applicable to this call)
+
+**GOLDEN RULE:** Be FAIR to the CRM. Don't penalize for topics that genuinely didn't fit the natural flow of THIS specific call.
 
 ---
 
-## EVALUATION FRAMEWORK
+## 📊 11-PARAMETER EVALUATION
 
-### 1) CUSTOMER PROFILING
-**Customer Type & Intent:**
-- Identify the customer type: Price-sensitive | Confused/Over-researching | Serious Buyer | Just Exploring | Referral/Follower | Skeptical/Fearful
-- Cite specific clues from the conversation that reveal their intent and mindset
+### **CUSTOMER PROFILING**
+First, identify:
+- **Customer Type**: Price-sensitive | Confused/Over-researching | Serious Buyer | Just Exploring | Referral/Follower | Skeptical/Fearful
+- **Call Type**: General Inquiry | Specific Question | Price-Focused | Booking | Technical Query | Comparison
+- **Engagement Level**: High | Medium | Low
+- **Call Duration**: Approximate minutes
 
 ---
 
-### 2) CORE COMMUNICATION SKILLS (44 points)
+### **CORE COMMUNICATION SKILLS (44 points max)**
 
-#### A. Professional Greeting & Introduction (Score: __/10)
-- Was the greeting warm, professional, and confident?
-- Did the CRM introduce themselves and the brand clearly?
-- Was the tone set appropriately for the customer's mood?
+#### **1. Professional Greeting & Introduction (Score: __/10 or N/A)**
+**Priority: IMPORTANT**
 
-#### B. Active Listening & Empathy (Score: __/10)
-- Did the CRM listen without interrupting?
-- Were empathetic responses given to customer concerns?
-- Did they acknowledge the customer's emotions and situation?
+Evaluate IF greeting occurred:
+- Was greeting warm, professional, and confident?
+- Did CRM introduce themselves and brand clearly?
+- Was tone appropriate for customer's mood?
 
-#### C. Understanding Customer Needs (Score: __/8)
-- Were effective qualifying questions asked?
-- Did the CRM accurately identify what the customer needs?
-- Was there probing for hair loss type, lifestyle, budget range?
+**Score 0-10** if greeting happened, **N/A** only if call started mid-conversation.
 
-#### D. Call Closure & Next Step (Score: __/8)
-- Was a clear next step communicated (consultation booking, follow-up, etc.)?
-- Did the CRM create urgency or excitement about next steps?
-- Was commitment secured or follow-up plan established?
+---
 
-#### E. Trust & Confidence Building (Score: __/8)
-- Did the CRM sound knowledgeable and confident?
+#### **2. Active Listening & Empathy (Score: __/10 or N/A)**
+**Priority: IMPORTANT**
+
+- Did CRM listen without interrupting?
+- Were empathetic responses given to concerns?
+- Did they acknowledge customer's emotions?
+
+**Score 0-10** for any conversation, **N/A** only if call was too brief to judge.
+
+---
+
+#### **3. Understanding Customer Needs (Score: __/8 or N/A)**
+**Priority: IMPORTANT**
+
+- Were qualifying questions asked?
+- Did CRM identify what customer needs?
+- Was there probing for hair loss type, lifestyle, budget?
+
+**Score 0-8** if conversation allowed, **N/A** if customer only asked one specific thing and left.
+
+---
+
+#### **4. Call Closure & Next Step (Score: __/8 or N/A)**
+**Priority: IMPORTANT**
+
+- Was clear next step communicated?
+- Did CRM create urgency or excitement?
+- Was commitment secured?
+
+**Score 0-8** for most calls, **N/A** only if customer abruptly ended call.
+
+---
+
+#### **5. Trust & Confidence Building (Score: __/8 or N/A)**
+**Priority: IMPORTANT**
+
+- Did CRM sound knowledgeable and confident?
 - Were testimonials, celebrity clients, or social proof mentioned?
-- Was reassurance provided about quality and results?
+- Was reassurance provided?
+
+**Score 0-8** if opportunity existed, **N/A** if call was too brief.
 
 ---
 
-### 3) PRODUCT & SERVICE KNOWLEDGE (28 points)
+### **PRODUCT & SERVICE KNOWLEDGE (28 points max)**
 
-#### F. General Product Explanation (Score: __/10)
-- Were American Hairline's key offerings explained clearly?
-- Did the CRM mention customization options (semi-custom vs fully custom)?
-- Were system types discussed (stick-on, clip-on, integration)?
-- Was the natural look and quality emphasized?
+#### **6. General Product Explanation (Score: __/10 or N/A)**
+**Priority: CRITICAL** (almost always needed in general inquiries)
 
-#### G. Hairline Types Differentiation (Score: __/8) **[NEW CRITICAL PARAMETER]**
-**IMPORTANT: If customer mentioned "hairline" or "front hairline", this MUST be evaluated carefully.**
+- Were American Hairline's offerings explained?
+- Customization options mentioned?
+- System types discussed?
+- Natural look emphasized?
 
-The CRM must differentiate between TWO types:
-1. **Just Hairline**: Only the front hairline is missing, crown and temples intact
-   - Cost: ₹15,000 to ₹18,000
-   - Simple, natural front hairline patch
-2. **Hairline Patch**: Hair loss includes hairline + temple areas + some crown coverage
-   - Cost: Starts from ₹25,000
-   - More comprehensive coverage
-
-**Evaluation Criteria:**
-- Did the CRM ask clarifying questions to determine which type the customer needs?
-- Did they explain the difference between "just hairline" vs "hairline patch"?
-- Was pricing for each type clearly communicated?
-- If customer only needs front hairline, did CRM mention the ₹15K-18K option?
-
-**Score 8/8 if**: CRM clearly identified need and explained both options with correct pricing.
-**Score 4-6/8 if**: CRM mentioned hairline but didn't differentiate types or pricing clearly.
-**Score 0-3/8 if**: CRM confused the customer or failed to explain the difference.
-
-#### H. Brand Differentiation (USPs) (Score: __/10) **[NEW CRITICAL PARAMETER]**
-**Did the CRM effectively explain how American Hairline is different from competitors?**
-
-Key USPs that should be mentioned:
-- **Handmade Systems**: Single-strand implants, not machine-made
-- **Premium Human Hair**: Double-drawn Remy human hair (superior quality)
-- **Custom Fit Options**: Semi-customized (faster) and fully customized systems
-- **Natural Hairline Expertise**: HD lace, low-density configurations for undetectable look
-- **Phased Transition Approach**: Start with low density, gradually increase for natural change
-- **Training & DIY Support**: Clients outside major cities taught self-servicing
-- **Transparent Consultation**: Educates on pros/cons, helps make right long-term choice
-- **Pan-India & International**: Ships internationally, branches in Mumbai, Delhi, Bangalore
-
-**Evaluation Criteria:**
-- Did the CRM proactively mention any USPs when customer asked "why you?" or "what's different?"?
-- Were at least 3-4 key differentiators clearly explained?
-- Did they sound confident and proud about the brand's unique value?
-
-**Score 9-10/10 if**: CRM confidently explained 4+ USPs with clarity and enthusiasm.
-**Score 6-8/10 if**: CRM mentioned 2-3 USPs but lacked depth or confidence.
-**Score 0-5/10 if**: CRM failed to differentiate the brand or gave generic answers.
+**Scoring:**
+- If general inquiry + NOT explained → **Score 0-5** (critical miss)
+- If specific question + product explained → **Score 6-10**
+- If customer only asked location/timing → **N/A**
 
 ---
 
-### 4) PRICING & SERVICE CLARITY (28 points)
+#### **7. Hairline Types Differentiation (Score: __/8 or N/A)**
+**Priority: CONTEXTUAL** (only if customer mentioned "hairline")
 
-#### I. Budget Justification (₹25K+ Packages) (Score: __/10) **[NEW CRITICAL PARAMETER]**
-**CRITICAL: If customer mentioned budget below ₹25,000 or asked "why so expensive?", this is a key moment.**
+**ONLY score this if customer specifically mentioned hairline/front hairline.**
 
-**What CRM should do:**
-1. Acknowledge the budget concern empathetically
-2. Explain why packages start from ₹25,000:
-   - Handmade, custom systems (not mass-produced)
-   - Premium Remy human hair (lasts 1+ year with care)
-   - Skilled craftsmanship and natural appearance
-   - Includes consultation, styling, training
-3. Frame it as an investment, not an expense
-4. Compare to cheaper alternatives (which look fake, don't last)
-5. Offer to show samples/portfolio during consultation
+If customer said "hairline":
+- Did CRM differentiate "just hairline" (₹15K-18K) vs "hairline patch" (₹25K+)?
+- Were both options explained with pricing?
 
-**RED FLAG**: If customer says budget is low and CRM simply says "just come for consultation" without justifying the price, this is a MAJOR FAILURE.
-
-**Evaluation Criteria:**
-- Did the CRM justify why systems start at ₹25K (not just deflect to consultation)?
-- Was the value proposition clearly explained?
-- Did they help the customer understand quality vs cost trade-off?
-
-**Score 9-10/10 if**: CRM gave detailed, confident justification of pricing with value emphasis.
-**Score 5-8/10 if**: CRM mentioned quality but didn't fully justify the ₹25K minimum.
-**Score 0-4/10 if**: CRM avoided the question or just said "come for consultation" without explanation.
-
-#### J. Delivery Timeline & Rush Charges (Score: __/8) **[NEW CRITICAL PARAMETER]**
-**Standard delivery is 25-30 days. If customer asked about faster delivery, CRM must handle this properly.**
-
-**What CRM should communicate:**
-1. Standard delivery: 25-30 days (for semi-custom systems)
-2. If customer needs urgent delivery:
-   - Ask: "How soon do you need it?" (within a week? same day?)
-   - Inform about $40 rush charge for expedited orders
-   - Explain that rush orders may have limited customization
-
-**Evaluation Criteria:**
-- Did the CRM clearly state the 25-30 day standard timeline?
-- If urgency mentioned, did they ask "how soon?" and explain rush charges?
-- Was the timeline communicated without ambiguity?
-
-**Score 7-8/8 if**: Timeline clearly stated, rush charges explained if relevant.
-**Score 4-6/8 if**: Timeline mentioned but no clarity on rush charges when needed.
-**Score 0-3/8 if**: No timeline mentioned or confused the customer about delivery.
-
-#### K. Stick-On Servicing Details (Score: __/10) **[NEW CRITICAL PARAMETER]**
-**If customer asked about servicing (maintenance, re-application, cleaning), CRM must provide specific details.**
-
-**What CRM should communicate:**
-1. **Servicing Cost**: ₹2,500 per session
-2. **Service Packages Available**: Mention that consultant will explain package discounts in detail
-3. **DIY Servicing**: If customer asks "Can I do it myself?":
-   - Answer: "Yes, but NOT initially"
-   - First 2 sessions MUST be done professionally
-   - After that, we can train you for self-servicing (especially for clients outside major cities)
-
-**Evaluation Criteria:**
-- Did the CRM mention the ₹2,500 servicing cost?
-- Did they mention service packages exist (even if details are for consultant)?
-- If DIY asked, did they explain the "first 2 sessions professional" rule?
-
-**Score 9-10/10 if**: All three points covered clearly (cost, packages, DIY policy).
-**Score 6-8/10 if**: Mentioned cost and packages but missed DIY details.
-**Score 0-5/10 if**: Vague or incomplete servicing information given.
+**Scoring:**
+- If hairline discussed + well explained → **Score 6-8**
+- If hairline discussed + poorly explained → **Score 0-5**
+- If hairline NOT mentioned by customer → **N/A**
 
 ---
 
-## 5) OBJECTION HANDLING
-**Questions & Objections Raised:**
-List all questions and objections the customer raised.
+#### **8. Brand Differentiation (USPs) (Score: __/10 or N/A)**
+**Priority: IMPORTANT** (should mention in general inquiries)
 
-**How CRM Handled Each:**
-For each objection, assess:
-- Was it addressed confidently?
-- Was the response factually accurate?
-- Did it resolve the customer's concern?
+USPs: Handmade systems, Premium Remy hair, Custom fit, Natural hairlines, Training support, Transparent consultation, Pan-India reach
 
----
-
-## 6) MISSED OPPORTUNITIES
-**What Could Have Been Done Better:**
-- What key information was not mentioned?
-- What questions should have been asked but weren't?
-- Where could the CRM have been more proactive?
+**Scoring:**
+- If customer asked "why you?" or general inquiry + USPs explained → **Score 7-10**
+- If general inquiry + USPs NOT mentioned → **Score 3-6** (missed opportunity)
+- If specific quick question → **N/A**
 
 ---
 
-## 7) CALL OUTCOME & NEXT STEPS
-- **✔ Call Status**: Booked Consultation | Follow-up Scheduled | Undecided | Not Interested
-- **Next Action Required**: No Action | Minor Feedback | Coaching Required | Retraining Needed | Escalate
+### **PRICING & SERVICE CLARITY (28 points max)**
+
+#### **9. Budget Justification (₹25K+ Packages) (Score: __/10 or N/A)**
+**Priority: CRITICAL** (if pricing discussed)
+
+**RED FLAG**: If customer said "too expensive" or asked about pricing, CRM MUST justify value.
+
+**Scoring:**
+- If price discussed + excellent justification → **Score 8-10**
+- If price discussed + weak justification → **Score 4-7**
+- If price discussed + just said "come for consultation" → **Score 0-3** (critical failure)
+- If pricing NOT discussed at all → **N/A**
 
 ---
 
-## ✅ FINAL VERDICT & RECOMMENDATION
-Provide a concise 2-3 sentence summary:
-- Overall performance assessment
-- Key strengths
-- Most critical improvement area
-- Actionable next step for this CRM executive
+#### **10. Delivery Timeline & Rush Charges (Score: __/8 or N/A)**
+**Priority: CONTEXTUAL** (only if customer asked about timing)
+
+Standard: 25-30 days. Rush: Ask "how soon?" + $40 charge.
+
+**Scoring:**
+- If customer asked about delivery + CRM explained well → **Score 6-8**
+- If customer asked + CRM vague → **Score 0-5**
+- If timing NOT discussed → **N/A**
 
 ---
 
-## 📊 11-PARAMETER SCORECARD (FILL WITH REAL NUMBERS)
+#### **11. Stick-On Servicing Details (Score: __/10 or N/A)**
+**Priority: CONTEXTUAL** (only if customer asked about maintenance)
 
-**CORE COMMUNICATION SKILLS (44 points total):**
-- Professional Greeting & Introduction Score: __/10
-- Active Listening & Empathy Score: __/10
-- Understanding Customer Needs Score: __/8
-- Call Closure & Next Step Score: __/8
-- Trust & Confidence Building Score: __/8
+Details: ₹2,500/session, packages available, first 2 sessions must be professional.
 
-**PRODUCT & SERVICE KNOWLEDGE (28 points total):**
-- General Product Explanation Score: __/10
-- Hairline Types Differentiation Score: __/8
-- Brand Differentiation (USPs) Score: __/10
-
-**PRICING & SERVICE CLARITY (28 points total):**
-- Budget Justification (₹25K+) Score: __/10
-- Delivery Timeline & Rush Charges Score: __/8
-- Stick-On Servicing Details Score: __/10
-
-**TOTAL SCORE: __/100**
+**Scoring:**
+- If customer asked about servicing + CRM explained well → **Score 8-10**
+- If customer asked + CRM incomplete info → **Score 4-7**
+- If servicing NOT discussed → **N/A**
 
 ---
 
-## CRITICAL INSTRUCTIONS FOR SCORING:
-1. Replace EVERY "__" with actual integer scores
-2. Keep the exact label format so the parser can extract scores
-3. Be strict but fair - don't give high scores unless truly deserved
-4. If a topic wasn't discussed in the call, score based on whether CRM SHOULD have brought it up
+## 📝 REPORT STRUCTURE
+
+Now write your comprehensive report:
+
+### **1) CUSTOMER PROFILING**
+- Customer Type:
+- Call Type:
+- Engagement Level:
+- Approximate Duration:
+
+### **2) DETAILED EVALUATION**
+For EACH parameter:
+- State whether it was discussed
+- If scored: Explain score with evidence
+- If N/A: Briefly explain why (e.g., "Not discussed - customer only asked about branch location")
+
+### **3) OBJECTIONS & HOW HANDLED**
+List any objections and quality of responses
+
+### **4) MISSED OPPORTUNITIES**
+What could have been done better (only mention realistic opportunities given the call context)
+
+### **5) CALL OUTCOME**
+- Status: Booked Consultation | Follow-up Scheduled | Undecided | Not Interested
+- Next Action: No Action | Minor Feedback | Coaching Required | Retraining Needed
+
+### **6) FINAL VERDICT**
+2-3 sentence summary with key strengths and critical improvement area
 
 ---
 
-## MACHINE-READABLE JSON OUTPUT
+## 📊 SCORECARD (FILL WITH REAL VALUES)
 
-After completing the human-readable report above, append on a NEW line ONLY this JSON (no extra words, no code fences) between these exact markers:
+**CORE COMMUNICATION SKILLS:**
+- Professional Greeting & Introduction Score: __/10 (or "N/A")
+- Active Listening & Empathy Score: __/10 (or "N/A")
+- Understanding Customer Needs Score: __/8 (or "N/A")
+- Call Closure & Next Step Score: __/8 (or "N/A")
+- Trust & Confidence Building Score: __/8 (or "N/A")
+
+**PRODUCT & SERVICE KNOWLEDGE:**
+- General Product Explanation Score: __/10 (or "N/A")
+- Hairline Types Differentiation Score: __/8 (or "N/A")
+- Brand Differentiation (USPs) Score: __/10 (or "N/A")
+
+**PRICING & SERVICE CLARITY:**
+- Budget Justification (₹25K+) Score: __/10 (or "N/A")
+- Delivery Timeline & Rush Charges Score: __/8 (or "N/A")
+- Stick-On Servicing Details Score: __/10 (or "N/A")
+
+**TOTAL SCORE:** Will be calculated by system
+
+---
+
+## ⚙️ MACHINE-READABLE JSON OUTPUT
+
+After completing the human-readable report, append this JSON between markers (no code fences, no extra text):
 
 {JSON_START}
-{{"greeting": <int>, "listening": <int>, "understanding_needs": <int>, "call_closure": <int>, "trust_building": <int>, "product_explanation": <int>, "hairline_types": <int>, "brand_differentiation": <int>, "budget_justification": <int>, "delivery_timeline": <int>, "servicing_details": <int>}}
+{{"greeting": <int or "N/A">, "listening": <int or "N/A">, "understanding_needs": <int or "N/A">, "call_closure": <int or "N/A">, "trust_building": <int or "N/A">, "product_explanation": <int or "N/A">, "hairline_types": <int or "N/A">, "brand_differentiation": <int or "N/A">, "budget_justification": <int or "N/A">, "delivery_timeline": <int or "N/A">, "servicing_details": <int or "N/A">}}
 {JSON_END}
 
-Replace <int> with the actual scores from your evaluation above.
+**CRITICAL:**
+- Use actual integers (0-10 or 0-8) for scored parameters
+- Use string "N/A" for not applicable parameters
+- Example: {{"greeting": 8, "hairline_types": "N/A", "servicing_details": "N/A"}}
 """
     
     resp = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-4o",  # Using GPT-4o for better performance and 128K context
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=3000,
+        max_tokens=3500,  # Increased for comprehensive reports
         temperature=0.2,
     )
     return resp.choices[0].message.content.strip()
 
-def extract_json_and_strip(report_text: str) -> Tuple[Optional[Dict[str,int]], str]:
+def extract_json_and_strip(report_text: str) -> Tuple[Optional[Dict[str, ScoreValue]], str]:
     """
     Extract the JSON between markers; return (scores_dict, cleaned_report_without_json).
+    Handles both integer scores and "N/A" values.
     If extraction fails, scores_dict=None and report_text is returned unchanged.
     """
     try:
@@ -464,35 +511,52 @@ def extract_json_and_strip(report_text: str) -> Tuple[Optional[Dict[str,int]], s
 
         # Remove the entire JSON block with markers from the human report
         cleaned = report_text[:report_text.index(JSON_START)].rstrip()
-        return (
-            {
-                "greeting": int(data.get("greeting", 0)),
-                "listening": int(data.get("listening", 0)),
-                "understanding_needs": int(data.get("understanding_needs", 0)),
-                "call_closure": int(data.get("call_closure", 0)),
-                "trust_building": int(data.get("trust_building", 0)),
-                "product_explanation": int(data.get("product_explanation", 0)),
-                "hairline_types": int(data.get("hairline_types", 0)),
-                "brand_differentiation": int(data.get("brand_differentiation", 0)),
-                "budget_justification": int(data.get("budget_justification", 0)),
-                "delivery_timeline": int(data.get("delivery_timeline", 0)),
-                "servicing_details": int(data.get("servicing_details", 0)),
-            },
-            cleaned,
-        )
+        
+        # Process each score - keep as int or "N/A"
+        scores = {}
+        for key in [
+            "greeting", "listening", "understanding_needs", "call_closure", 
+            "trust_building", "product_explanation", "hairline_types", 
+            "brand_differentiation", "budget_justification", "delivery_timeline", 
+            "servicing_details"
+        ]:
+            value = data.get(key, "N/A")
+            if value == "N/A" or value == "n/a":
+                scores[key] = "N/A"
+            else:
+                try:
+                    scores[key] = int(value)
+                except (ValueError, TypeError):
+                    scores[key] = "N/A"
+        
+        return scores, cleaned
+        
     except Exception as e:
         logging.warning(f"⚠️ JSON block extraction failed, will fallback to regex. {e}")
         return None, report_text
 
-# Regex fallback for 11 parameters
-def parse_scores_from_report(report_text: str) -> Dict[str, int]:
-    def grab(label_regex: str) -> int:
+# Regex fallback for 11 parameters (supports N/A)
+def parse_scores_from_report(report_text: str) -> Dict[str, ScoreValue]:
+    """
+    Fallback regex parser that handles both numeric scores and N/A values.
+    """
+    def grab(label_regex: str) -> ScoreValue:
+        # Try to match "N/A" first
+        na_match = re.search(
+            label_regex + r".{0,200}?Score\s*[:\-]?\s*[\"']?N/?A[\"']?",
+            report_text,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if na_match:
+            return "N/A"
+        
+        # Try to match numeric score
         m = re.search(
             label_regex + r".{0,200}?Score\s*[:\-]?\s*(\d{1,2})\s*/\s*\d{1,2}",
             report_text,
             re.IGNORECASE | re.DOTALL,
         )
-        return int(m.group(1)) if m else 0
+        return int(m.group(1)) if m else "N/A"
 
     scores = {
         "greeting":               grab(r"Professional\s+Greeting\s*&\s*Introduction"),
@@ -542,7 +606,7 @@ async def generate_report_endpoint(request: Request):
             try: os.remove(mp3_path)
             except: pass
 
-        # Generate report
+        # Generate report with smart conditional scoring
         full_transcript = clean_transcript(" ".join(parts).strip())
         raw_output = generate_openai_report(full_transcript)
 
@@ -554,7 +618,7 @@ async def generate_report_endpoint(request: Request):
             scores = parse_scores_from_report(raw_output)
             cleaned_report = raw_output
 
-        logging.info("✅ Report generated successfully with 11 parameters")
+        logging.info(f"✅ Report generated with smart conditional scoring: {scores}")
         return {"report": cleaned_report, "scores": scores}
 
     except Exception as e:
