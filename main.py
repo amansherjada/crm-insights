@@ -1,6 +1,7 @@
-# main.py
+# main.py - COMPLETE FILE WITH CONSOLIDATED REPORTING
 import os, re, json, tempfile, logging, subprocess, requests
 from typing import List, Dict, Optional, Tuple, Union
+from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,7 +38,7 @@ JSON_END   = "<<<SCORES_11_JSON_END>>>"
 # Score type can be int or "N/A"
 ScoreValue = Union[int, str]
 
-# ========== HELPERS ==========
+# ========== HELPERS (EXISTING) ==========
 def clean_transcript(text: str) -> str:
     text = re.sub(r"\\an\d+\\?.*?", "", text)
     text = re.sub(r"[-–—_=*#{}<>[\]\"'`|]", "", text)
@@ -192,7 +193,7 @@ def transcribe_audio(mp3_path: str) -> str:
         )
     return tr.strip()
 
-# ========== REPORT GEN ==========
+# ========== INDIVIDUAL REPORT GENERATION (EXISTING) ==========
 def generate_openai_report(full_transcript: str) -> str:
     """
     Generate comprehensive CRM audit report with SMART CONDITIONAL SCORING (11 Parameters).
@@ -490,9 +491,9 @@ After completing the human-readable report, append this JSON between markers (no
 """
     
     resp = client.chat.completions.create(
-        model="gpt-4o",  # Using GPT-4o for better performance and 128K context
+        model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=3500,  # Increased for comprehensive reports
+        max_tokens=3500,
         temperature=0.2,
     )
     return resp.choices[0].message.content.strip()
@@ -535,7 +536,6 @@ def extract_json_and_strip(report_text: str) -> Tuple[Optional[Dict[str, ScoreVa
         logging.warning(f"⚠️ JSON block extraction failed, will fallback to regex. {e}")
         return None, report_text
 
-# Regex fallback for 11 parameters (supports N/A)
 def parse_scores_from_report(report_text: str) -> Dict[str, ScoreValue]:
     """
     Fallback regex parser that handles both numeric scores and N/A values.
@@ -574,9 +574,482 @@ def parse_scores_from_report(report_text: str) -> Dict[str, ScoreValue]:
     logging.info(f"📊 Parsed Scores (regex fallback): {scores}")
     return scores
 
-# ========== ROUTE ==========
+# ========== NEW: CONSOLIDATED REPORT GENERATION ==========
+
+def generate_consolidated_daily_report(
+    agent_name: str,
+    report_date: str,
+    calls_data: List[Dict],
+    aggregate_stats: Dict
+) -> Dict:
+    """
+    Generate AI-powered consolidated daily report for an agent.
+    
+    Args:
+        agent_name: Name of the agent
+        report_date: Date of calls (e.g., "2025-10-13")
+        calls_data: List of call dictionaries with transcript, scores, individual_report
+        aggregate_stats: Aggregated statistics (total_calls, avg_scores, etc.)
+    
+    Returns:
+        Dict with common_mistakes, strengths, action_items, coaching_notes, examples
+    """
+    logging.info(f"📊 Generating consolidated daily report for {agent_name} on {report_date}")
+    
+    # Prepare call summaries for the prompt
+    call_summaries = []
+    for i, call in enumerate(calls_data, 1):
+        summary = f"""
+**Call {i}/{len(calls_data)}:**
+- Customer: {call.get('customer', 'Unknown')}
+- Duration: {call.get('duration', 'N/A')}
+- Final Score: {call.get('final_score', 'N/A')}
+- Individual Scores: {json.dumps(call.get('scores', {}), indent=2)}
+
+**Transcript Excerpt (First 500 chars):**
+{call.get('transcript', '')[:500]}...
+
+**Individual Report Summary:**
+{call.get('individual_report', '')[:800]}...
+"""
+        call_summaries.append(summary)
+    
+    all_calls_text = "\n\n---\n\n".join(call_summaries)
+    
+    # Build the prompt
+    prompt = f"""
+📊 **CONSOLIDATED DAILY PERFORMANCE REPORT - AGENT ANALYSIS**
+
+You are a senior CRM performance analyst at American Hairline. Your task is to analyze ALL calls made by **{agent_name}** on **{report_date}** and provide actionable insights for coaching and improvement.
+
+---
+
+## 📈 AGGREGATE STATISTICS
+
+- **Total Calls Analyzed:** {aggregate_stats.get('total_calls', 0)}
+- **Average Final Score:** {aggregate_stats.get('avg_final_score', 0):.1f}/100
+- **Average Parameter Scores:**
+{json.dumps(aggregate_stats.get('avg_scores', {}), indent=2)}
+
+---
+
+## 📞 INDIVIDUAL CALL DATA
+
+{all_calls_text}
+
+---
+
+## 🎯 YOUR TASK
+
+Analyze ALL the calls above and provide a comprehensive consolidated report with the following sections:
+
+### **1. COMMON MISTAKES (Top 3-5 recurring issues)**
+Identify patterns of mistakes that appear across multiple calls. Be specific and cite call numbers as evidence.
+
+Format:
+- "Issue description (appeared in X/Y calls)" - [Example: Call 2, Call 5]
+
+### **2. STRENGTHS (Top 3-4 consistent strong points)**
+Highlight what the agent does well across most calls.
+
+Format:
+- "Strength description" - [Example: Consistently in Call 1, Call 3, Call 7]
+
+### **3. PRIORITY ACTION ITEMS (Top 3-4 specific improvements)**
+Provide concrete, actionable steps for improvement. Prioritize by impact.
+
+Format:
+1. **[HIGH PRIORITY]** Action item with specific technique or approach
+2. **[MEDIUM PRIORITY]** Action item
+3. **[LOW PRIORITY]** Action item
+
+### **4. COACHING NOTES**
+2-3 sentences summarizing the agent's overall performance level and recommended coaching approach.
+
+### **5. SPECIFIC EXAMPLES**
+- **Best Moment:** Cite the specific call and what was done exceptionally well
+- **Worst Moment:** Cite the specific call and what went wrong
+- **Teaching Moment:** One specific example that would be valuable for training
+
+---
+
+## ⚙️ OUTPUT FORMAT
+
+Return your analysis in the following JSON structure (no code fences, just raw JSON):
+
+{{
+  "common_mistakes": [
+    "Mistake 1 description (X/Y calls) - [Call numbers]",
+    "Mistake 2 description (X/Y calls) - [Call numbers]",
+    ...
+  ],
+  "strengths": [
+    "Strength 1 description - [Call numbers]",
+    "Strength 2 description - [Call numbers]",
+    ...
+  ],
+  "action_items": [
+    {{
+      "priority": "HIGH",
+      "action": "Specific action item description"
+    }},
+    {{
+      "priority": "MEDIUM",
+      "action": "Specific action item description"
+    }},
+    ...
+  ],
+  "coaching_notes": "2-3 sentence summary of performance and coaching approach",
+  "specific_examples": {{
+    "best_moment": "Call X - Description of what was done well",
+    "worst_moment": "Call Y - Description of what went wrong",
+    "teaching_moment": "Call Z - Specific example valuable for training"
+  }}
+}}
+
+**CRITICAL INSTRUCTIONS:**
+- Be specific and cite call numbers as evidence
+- Focus on ACTIONABLE insights, not generic feedback
+- Identify PATTERNS across multiple calls, not isolated incidents
+- Prioritize issues by frequency and impact
+- Keep coaching notes constructive and solution-focused
+"""
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=2000,
+            temperature=0.3,
+        )
+        
+        response_text = resp.choices[0].message.content.strip()
+        
+        # Try to parse as JSON
+        # Remove markdown code fences if present
+        if response_text.startswith("```"):
+            response_text = re.sub(r'```json\s*|\s*```', '', response_text).strip()
+        
+        insights = json.loads(response_text)
+        logging.info(f"✅ Successfully generated consolidated daily report for {agent_name}")
+        return insights
+        
+    except json.JSONDecodeError as e:
+        logging.error(f"❌ Failed to parse JSON from GPT-4o response: {e}")
+        # Return fallback structure
+        return {
+            "common_mistakes": ["Error: Could not parse AI response"],
+            "strengths": ["Error: Could not parse AI response"],
+            "action_items": [{"priority": "HIGH", "action": "Manual review needed"}],
+            "coaching_notes": "AI analysis failed - manual review required",
+            "specific_examples": {
+                "best_moment": "N/A",
+                "worst_moment": "N/A",
+                "teaching_moment": "N/A"
+            }
+        }
+    except Exception as e:
+        logging.error(f"❌ Error generating consolidated report: {e}")
+        raise
+
+
+def generate_consolidated_weekly_report(
+    agent_name: str,
+    week_start: str,
+    week_end: str,
+    daily_summaries: List[Dict],
+    aggregate_stats: Dict
+) -> Dict:
+    """
+    Generate AI-powered consolidated weekly report for an agent.
+    
+    Args:
+        agent_name: Name of the agent
+        week_start: Start date of week (Monday)
+        week_end: End date of week (Sunday)
+        daily_summaries: List of daily report summaries
+        aggregate_stats: Weekly aggregated statistics
+    
+    Returns:
+        Dict with weekly insights, trends, action_items
+    """
+    logging.info(f"📊 Generating consolidated weekly report for {agent_name} ({week_start} to {week_end})")
+    
+    # Prepare daily summaries
+    daily_texts = []
+    for i, day in enumerate(daily_summaries, 1):
+        daily_text = f"""
+**Day {i} - {day.get('date', 'N/A')}:**
+- Calls: {day.get('total_calls', 0)}
+- Avg Score: {day.get('avg_score', 0):.1f}/100
+- Common Mistakes: {', '.join(day.get('common_mistakes', [])[:3])}
+- Strengths: {', '.join(day.get('strengths', [])[:2])}
+"""
+        daily_texts.append(daily_text)
+    
+    all_days_text = "\n".join(daily_texts)
+    
+    prompt = f"""
+📊 **CONSOLIDATED WEEKLY PERFORMANCE REPORT - AGENT ANALYSIS**
+
+You are a senior CRM performance analyst. Analyze the WEEKLY performance of **{agent_name}** for the week of **{week_start} to {week_end}**.
+
+---
+
+## 📈 WEEKLY AGGREGATE STATISTICS
+
+- **Total Calls This Week:** {aggregate_stats.get('total_calls', 0)}
+- **Average Weekly Score:** {aggregate_stats.get('avg_final_score', 0):.1f}/100
+- **Weekly Parameter Averages:**
+{json.dumps(aggregate_stats.get('avg_scores', {}), indent=2)}
+
+---
+
+## 📅 DAILY BREAKDOWN
+
+{all_days_text}
+
+---
+
+## 🎯 YOUR TASK
+
+Provide a weekly performance analysis with:
+
+### **1. WEEKLY TREND ANALYSIS**
+Analyze if performance is improving, declining, or stable. Cite specific evidence from daily data.
+
+### **2. KEY WEEKLY INSIGHTS (3-4 points)**
+What are the most important patterns or observations from this week?
+
+### **3. PRIORITY ACTION ITEMS FOR NEXT WEEK (Top 3)**
+What should the agent focus on in the coming week?
+
+### **4. WEEKLY COACHING RECOMMENDATION**
+Brief recommendation on coaching approach for next week.
+
+---
+
+## ⚙️ OUTPUT FORMAT (JSON)
+
+{{
+  "trend_analysis": "Improving/Declining/Stable with specific evidence",
+  "weekly_insights": [
+    "Insight 1 with supporting data",
+    "Insight 2 with supporting data",
+    ...
+  ],
+  "action_items": [
+    {{
+      "priority": "HIGH",
+      "action": "Specific weekly goal"
+    }},
+    ...
+  ],
+  "coaching_recommendation": "Brief coaching strategy for next week"
+}}
+
+**CRITICAL:**
+- Compare performance across days
+- Identify improving/declining trends
+- Be specific with data points
+- Focus on actionable weekly goals
+"""
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1500,
+            temperature=0.3,
+        )
+        
+        response_text = resp.choices[0].message.content.strip()
+        if response_text.startswith("```"):
+            response_text = re.sub(r'```json\s*|\s*```', '', response_text).strip()
+        
+        insights = json.loads(response_text)
+        logging.info(f"✅ Successfully generated consolidated weekly report for {agent_name}")
+        return insights
+        
+    except json.JSONDecodeError as e:
+        logging.error(f"❌ Failed to parse JSON from GPT-4o response: {e}")
+        return {
+            "trend_analysis": "Error: Could not parse AI response",
+            "weekly_insights": ["Error: Could not parse AI response"],
+            "action_items": [{"priority": "HIGH", "action": "Manual review needed"}],
+            "coaching_recommendation": "AI analysis failed - manual review required"
+        }
+    except Exception as e:
+        logging.error(f"❌ Error generating weekly report: {e}")
+        raise
+
+
+def generate_consolidated_monthly_report(
+    agent_name: str,
+    month: str,
+    year: int,
+    weekly_summaries: List[Dict],
+    aggregate_stats: Dict,
+    previous_month_stats: Optional[Dict] = None
+) -> Dict:
+    """
+    Generate AI-powered consolidated monthly report for an agent.
+    
+    Args:
+        agent_name: Name of the agent
+        month: Month name (e.g., "October")
+        year: Year (e.g., 2025)
+        weekly_summaries: List of weekly report summaries
+        aggregate_stats: Monthly aggregated statistics
+        previous_month_stats: Previous month stats for comparison (optional)
+    
+    Returns:
+        Dict with monthly insights, trends, achievements, focus_areas
+    """
+    logging.info(f"📊 Generating consolidated monthly report for {agent_name} ({month} {year})")
+    
+    # Prepare weekly summaries
+    weekly_texts = []
+    for i, week in enumerate(weekly_summaries, 1):
+        weekly_text = f"""
+**Week {i} ({week.get('week_start', 'N/A')} to {week.get('week_end', 'N/A')}):**
+- Calls: {week.get('total_calls', 0)}
+- Avg Score: {week.get('avg_score', 0):.1f}/100
+- Trend: {week.get('trend', 'N/A')}
+- Key Insights: {', '.join(week.get('weekly_insights', [])[:2])}
+"""
+        weekly_texts.append(weekly_text)
+    
+    all_weeks_text = "\n".join(weekly_texts)
+    
+    # Month-over-month comparison
+    mom_comparison = ""
+    if previous_month_stats:
+        prev_score = previous_month_stats.get('avg_final_score', 0)
+        curr_score = aggregate_stats.get('avg_final_score', 0)
+        change = curr_score - prev_score
+        mom_comparison = f"""
+## 📊 MONTH-OVER-MONTH COMPARISON
+
+- **Previous Month Average:** {prev_score:.1f}/100
+- **Current Month Average:** {curr_score:.1f}/100
+- **Change:** {'+' if change >= 0 else ''}{change:.1f} points ({'+' if change >= 0 else ''}{(change/prev_score*100):.1f}%)
+"""
+    
+    prompt = f"""
+📊 **CONSOLIDATED MONTHLY PERFORMANCE REPORT - AGENT ANALYSIS**
+
+You are a senior CRM performance analyst. Provide a comprehensive MONTHLY analysis for **{agent_name}** for **{month} {year}**.
+
+---
+
+## 📈 MONTHLY AGGREGATE STATISTICS
+
+- **Total Calls This Month:** {aggregate_stats.get('total_calls', 0)}
+- **Average Monthly Score:** {aggregate_stats.get('avg_final_score', 0):.1f}/100
+- **Monthly Parameter Averages:**
+{json.dumps(aggregate_stats.get('avg_scores', {}), indent=2)}
+
+{mom_comparison}
+
+---
+
+## 📅 WEEKLY BREAKDOWN
+
+{all_weeks_text}
+
+---
+
+## 🎯 YOUR TASK
+
+Provide a comprehensive monthly performance analysis with:
+
+### **1. MONTHLY TREND ANALYSIS**
+Analyze overall trajectory over the month. Did performance improve, decline, or plateau?
+
+### **2. KEY ACHIEVEMENTS (Top 3-4)**
+What did the agent do well this month? What improved?
+
+### **3. FOCUS AREAS (Top 3-4)**
+What needs work? What didn't improve or declined?
+
+### **4. MONTHLY GOALS FOR NEXT MONTH (Top 3)**
+Based on this month's data, what should be the priority goals for next month?
+
+### **5. STRATEGIC COACHING RECOMMENDATION**
+High-level coaching strategy and development plan for the agent.
+
+---
+
+## ⚙️ OUTPUT FORMAT (JSON)
+
+{{
+  "monthly_trend": "Detailed trend analysis with evidence",
+  "key_achievements": [
+    "Achievement 1 with supporting data",
+    "Achievement 2 with supporting data",
+    ...
+  ],
+  "focus_areas": [
+    "Focus area 1 with specific metrics",
+    "Focus area 2 with specific metrics",
+    ...
+  ],
+  "monthly_goals": [
+    {{
+      "priority": "HIGH",
+      "goal": "Specific measurable goal for next month"
+    }},
+    ...
+  ],
+  "coaching_recommendation": "Strategic coaching and development plan"
+}}
+
+**CRITICAL:**
+- Use actual data points and metrics
+- Compare week-to-week progression
+- Identify long-term patterns
+- Set SMART goals for next month
+- Be strategic, not tactical
+"""
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=2000,
+            temperature=0.3,
+        )
+        
+        response_text = resp.choices[0].message.content.strip()
+        if response_text.startswith("```"):
+            response_text = re.sub(r'```json\s*|\s*```', '', response_text).strip()
+        
+        insights = json.loads(response_text)
+        logging.info(f"✅ Successfully generated consolidated monthly report for {agent_name}")
+        return insights
+        
+    except json.JSONDecodeError as e:
+        logging.error(f"❌ Failed to parse JSON from GPT-4o response: {e}")
+        return {
+            "monthly_trend": "Error: Could not parse AI response",
+            "key_achievements": ["Error: Could not parse AI response"],
+            "focus_areas": ["Error: Could not parse AI response"],
+            "monthly_goals": [{"priority": "HIGH", "goal": "Manual review needed"}],
+            "coaching_recommendation": "AI analysis failed - manual review required"
+        }
+    except Exception as e:
+        logging.error(f"❌ Error generating monthly report: {e}")
+        raise
+
+
+# ========== API ROUTES ==========
+
 @app.post("/generate-report")
 async def generate_report_endpoint(request: Request):
+    """
+    EXISTING ENDPOINT - Individual call audit
+    """
     try:
         data = await request.json()
         file_id_or_url = data.get("file_id")
@@ -624,3 +1097,238 @@ async def generate_report_endpoint(request: Request):
     except Exception as e:
         logging.exception("❌ Report generation failed")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.post("/generate-consolidated-report")
+async def generate_consolidated_report_endpoint(request: Request):
+    """
+    NEW ENDPOINT - Generate consolidated daily report for multiple calls by same agent
+    
+    Expected payload:
+    {
+      "agent_name": "Rahul",
+      "report_type": "daily",
+      "date": "2025-10-13",
+      "calls": [
+        {
+          "call_id": "C001",
+          "customer": "9876543210",
+          "duration": "8m 23s",
+          "final_score": 78,
+          "transcript": "...",
+          "scores": {...},
+          "individual_report": "..."
+        },
+        ...
+      ],
+      "aggregate_stats": {
+        "total_calls": 10,
+        "avg_final_score": 72.5,
+        "avg_scores": {...}
+      }
+    }
+    """
+    try:
+        data = await request.json()
+        
+        # Validate required fields
+        agent_name = data.get("agent_name")
+        report_type = data.get("report_type", "daily")
+        date = data.get("date")
+        calls = data.get("calls", [])
+        aggregate_stats = data.get("aggregate_stats", {})
+        
+        if not agent_name or not date or not calls:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Missing required fields: agent_name, date, or calls"}
+            )
+        
+        logging.info(f"🎯 Generating consolidated {report_type} report for {agent_name} on {date}")
+        logging.info(f"📊 Processing {len(calls)} calls")
+        
+        # Generate consolidated report
+        if report_type == "daily":
+            insights = generate_consolidated_daily_report(
+                agent_name=agent_name,
+                report_date=date,
+                calls_data=calls,
+                aggregate_stats=aggregate_stats
+            )
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Unsupported report_type: {report_type}"}
+            )
+        
+        logging.info(f"✅ Consolidated report generated successfully for {agent_name}")
+        return {
+            "agent_name": agent_name,
+            "report_type": report_type,
+            "date": date,
+            "insights": insights,
+            "aggregate_stats": aggregate_stats
+        }
+        
+    except Exception as e:
+        logging.exception("❌ Consolidated report generation failed")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.post("/generate-weekly-insights")
+async def generate_weekly_insights_endpoint(request: Request):
+    """
+    NEW ENDPOINT - Generate consolidated weekly report
+    
+    Expected payload:
+    {
+      "agent_name": "Rahul",
+      "week_start": "2025-10-07",
+      "week_end": "2025-10-13",
+      "daily_summaries": [
+        {
+          "date": "2025-10-07",
+          "total_calls": 5,
+          "avg_score": 73.2,
+          "common_mistakes": [...],
+          "strengths": [...]
+        },
+        ...
+      ],
+      "aggregate_stats": {
+        "total_calls": 35,
+        "avg_final_score": 71.8,
+        "avg_scores": {...}
+      }
+    }
+    """
+    try:
+        data = await request.json()
+        
+        agent_name = data.get("agent_name")
+        week_start = data.get("week_start")
+        week_end = data.get("week_end")
+        daily_summaries = data.get("daily_summaries", [])
+        aggregate_stats = data.get("aggregate_stats", {})
+        
+        if not agent_name or not week_start or not week_end:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Missing required fields: agent_name, week_start, or week_end"}
+            )
+        
+        logging.info(f"🎯 Generating weekly insights for {agent_name} ({week_start} to {week_end})")
+        
+        insights = generate_consolidated_weekly_report(
+            agent_name=agent_name,
+            week_start=week_start,
+            week_end=week_end,
+            daily_summaries=daily_summaries,
+            aggregate_stats=aggregate_stats
+        )
+        
+        logging.info(f"✅ Weekly insights generated successfully for {agent_name}")
+        return {
+            "agent_name": agent_name,
+            "week_start": week_start,
+            "week_end": week_end,
+            "insights": insights,
+            "aggregate_stats": aggregate_stats
+        }
+        
+    except Exception as e:
+        logging.exception("❌ Weekly insights generation failed")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.post("/generate-monthly-insights")
+async def generate_monthly_insights_endpoint(request: Request):
+    """
+    NEW ENDPOINT - Generate consolidated monthly report
+    
+    Expected payload:
+    {
+      "agent_name": "Rahul",
+      "month": "October",
+      "year": 2025,
+      "weekly_summaries": [
+        {
+          "week_start": "2025-10-01",
+          "week_end": "2025-10-06",
+          "total_calls": 28,
+          "avg_score": 70.5,
+          "trend": "Improving ↑",
+          "weekly_insights": [...]
+        },
+        ...
+      ],
+      "aggregate_stats": {
+        "total_calls": 142,
+        "avg_final_score": 72.3,
+        "avg_scores": {...}
+      },
+      "previous_month_stats": {
+        "avg_final_score": 68.7
+      }
+    }
+    """
+    try:
+        data = await request.json()
+        
+        agent_name = data.get("agent_name")
+        month = data.get("month")
+        year = data.get("year")
+        weekly_summaries = data.get("weekly_summaries", [])
+        aggregate_stats = data.get("aggregate_stats", {})
+        previous_month_stats = data.get("previous_month_stats")
+        
+        if not agent_name or not month or not year:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Missing required fields: agent_name, month, or year"}
+            )
+        
+        logging.info(f"🎯 Generating monthly insights for {agent_name} ({month} {year})")
+        
+        insights = generate_consolidated_monthly_report(
+            agent_name=agent_name,
+            month=month,
+            year=year,
+            weekly_summaries=weekly_summaries,
+            aggregate_stats=aggregate_stats,
+            previous_month_stats=previous_month_stats
+        )
+        
+        logging.info(f"✅ Monthly insights generated successfully for {agent_name}")
+        return {
+            "agent_name": agent_name,
+            "month": month,
+            "year": year,
+            "insights": insights,
+            "aggregate_stats": aggregate_stats
+        }
+        
+    except Exception as e:
+        logging.exception("❌ Monthly insights generation failed")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ========== HEALTH CHECK ==========
+@app.get("/")
+async def root():
+    return {
+        "status": "running",
+        "service": "CRM Insights API with Consolidated Reporting",
+        "version": "2.0",
+        "endpoints": [
+            "/generate-report (POST) - Individual call audit",
+            "/generate-consolidated-report (POST) - Daily consolidated report",
+            "/generate-weekly-insights (POST) - Weekly consolidated report",
+            "/generate-monthly-insights (POST) - Monthly consolidated report"
+        ]
+    }
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
