@@ -1,4 +1,11 @@
-# main.py - COMPLETE FILE WITH CONSOLIDATED REPORTING
+# main.py - UPDATED VERSION WITH SCORE VALIDATION & CAPPING
+# Version: 3.0
+# Changes:
+# - Added validate_and_cap_scores() function
+# - Strengthened GPT-4o prompt with explicit score limits
+# - Both backend and frontend validation (belt and suspenders)
+# - Final score now shows: "77 pts (94%)" format
+
 import os, re, json, tempfile, logging, subprocess, requests
 from typing import List, Dict, Optional, Tuple, Union
 from datetime import datetime
@@ -193,9 +200,68 @@ def transcribe_audio(mp3_path: str) -> str:
         )
     return tr.strip()
 
-# ========== INDIVIDUAL REPORT GENERATION (EXISTING) ==========
+# ========== ✨ NEW: SCORE VALIDATION FUNCTION ==========
+def validate_and_cap_scores(scores: Dict[str, ScoreValue]) -> Dict[str, ScoreValue]:
+    """
+    ✨ NEW FUNCTION: Validate scores don't exceed max values and cap them if they do.
+    This is the "belt and suspenders" approach - validating in backend.
+    
+    Returns corrected scores with logging of any corrections made.
+    """
+    MAX_SCORES = {
+        'greeting': 10,
+        'listening': 10,
+        'understanding_needs': 8,
+        'call_closure': 8,
+        'trust_building': 8,
+        'product_explanation': 10,
+        'hairline_types': 8,
+        'brand_differentiation': 10,
+        'budget_justification': 10,
+        'delivery_timeline': 8,
+        'servicing_details': 10
+    }
+    
+    validated = {}
+    corrections_made = []
+    
+    for key, value in scores.items():
+        if value == "N/A" or value == "n/a" or value is None:
+            validated[key] = "N/A"
+        else:
+            try:
+                numeric_value = int(value) if isinstance(value, (int, float)) else int(value)
+                max_allowed = MAX_SCORES.get(key, 10)
+                
+                if numeric_value > max_allowed:
+                    corrections_made.append(
+                        f"{key}: {numeric_value} → {max_allowed} (exceeded max)"
+                    )
+                    validated[key] = max_allowed
+                    logging.warning(f"⚠️ Score capped: {key} from {numeric_value} to {max_allowed}")
+                elif numeric_value < 0:
+                    corrections_made.append(
+                        f"{key}: {numeric_value} → 0 (negative score)"
+                    )
+                    validated[key] = 0
+                    logging.warning(f"⚠️ Negative score corrected: {key} from {numeric_value} to 0")
+                else:
+                    validated[key] = numeric_value
+            except (ValueError, TypeError):
+                logging.warning(f"⚠️ Invalid score value for {key}: {value}, setting to N/A")
+                validated[key] = "N/A"
+    
+    if corrections_made:
+        logging.info(f"✅ Score validation applied: {len(corrections_made)} corrections made")
+        for correction in corrections_made:
+            logging.info(f"   - {correction}")
+    
+    return validated
+
+# ========== INDIVIDUAL REPORT GENERATION (UPDATED) ==========
 def generate_openai_report(full_transcript: str) -> str:
     """
+    ✨ UPDATED: Strengthened prompt with EXPLICIT score limits
     Generate comprehensive CRM audit report with SMART CONDITIONAL SCORING (11 Parameters).
     Uses GPT-4o with Hybrid Smart Approach.
     Returns human-readable report + machine-readable JSON block with N/A support.
@@ -211,6 +277,42 @@ You are a senior customer experience auditor for American Hairline, reviewing ho
 
 ---
 
+## ⚠️ CRITICAL SCORING RULES - READ CAREFULLY BEFORE SCORING:
+
+**ABSOLUTE MAXIMUM SCORES - NEVER EVER EXCEED THESE:**
+
+YOU MUST NEVER GIVE SCORES HIGHER THAN THESE MAXIMUMS. THIS IS NON-NEGOTIABLE.
+
+- Professional Greeting & Introduction: **MAXIMUM 10** (Not 11, not 12, not 14 - MAX IS 10!)
+- Active Listening & Empathy: **MAXIMUM 10** (Not 11, not 12, not 14 - MAX IS 10!)
+- Understanding Customer Needs: **MAXIMUM 8** (Not 9, not 10 - MAX IS 8!)
+- Call Closure & Next Step: **MAXIMUM 8** (Not 9, not 10 - MAX IS 8!)
+- Trust & Confidence Building: **MAXIMUM 8** (Not 9, not 10 - MAX IS 8!)
+- General Product Explanation: **MAXIMUM 10** (Not 11, not 12 - MAX IS 10!)
+- Hairline Types Differentiation: **MAXIMUM 8** (Not 9, not 10 - MAX IS 8!)
+- Brand Differentiation (USPs): **MAXIMUM 10** (Not 11, not 12 - MAX IS 10!)
+- Budget Justification (₹25K+): **MAXIMUM 10** (Not 11, not 12 - MAX IS 10!)
+- Delivery Timeline & Rush Charges: **MAXIMUM 8** (Not 9, not 10 - MAX IS 8!)
+- Stick-On Servicing Details: **MAXIMUM 10** (Not 11, not 12 - MAX IS 10!)
+
+**EXAMPLES OF CORRECT VS WRONG SCORES:**
+✅ CORRECT: Greeting = 10/10 (excellent performance)
+❌ WRONG: Greeting = 14/10 (IMPOSSIBLE - exceeds maximum!)
+
+✅ CORRECT: Call Closure = 8/8 (perfect execution)
+❌ WRONG: Call Closure = 9/8 (IMPOSSIBLE - exceeds maximum!)
+
+✅ CORRECT: Understanding = 7/8 (very good)
+❌ WRONG: Understanding = 10/8 (IMPOSSIBLE - exceeds maximum!)
+
+IF YOU WANT TO GIVE A "PERFECT" SCORE:
+- For 10-point parameters: Use 10 (this is the highest possible)
+- For 8-point parameters: Use 8 (this is the highest possible)
+
+**REMINDER:** The maximum score represents PERFECT performance. There is NO score higher than perfect!
+
+---
+
 ## 🎯 EVALUATION INSTRUCTIONS
 
 You will assess this call using the **HYBRID SMART APPROACH** with 11 parameters. Your job is to be INTELLIGENT and FAIR - not every parameter applies to every call.
@@ -220,7 +322,7 @@ You will assess this call using the **HYBRID SMART APPROACH** with 11 parameters
 For EACH of the 11 parameters below, follow this 4-STEP DECISION PROCESS:
 
 #### **STEP 1: Was this topic discussed in the call?**
-- **YES** → Score the quality (0-10) based on how well CRM handled it, then move to next parameter
+- **YES** → Score the quality (0-10 or 0-8 based on max) based on how well CRM handled it, then move to next parameter
 - **NO** → Continue to STEP 2
 
 #### **STEP 2: Is this topic RELEVANT to the customer's inquiry?**
@@ -284,6 +386,7 @@ First, identify:
 
 #### **1. Professional Greeting & Introduction (Score: __/10 or N/A)**
 **Priority: IMPORTANT**
+**MAXIMUM SCORE: 10**
 
 Evaluate IF greeting occurred:
 - Was greeting warm, professional, and confident?
@@ -291,50 +394,59 @@ Evaluate IF greeting occurred:
 - Was tone appropriate for customer's mood?
 
 **Score 0-10** if greeting happened, **N/A** only if call started mid-conversation.
+**REMEMBER: 10 is the MAXIMUM. Do not give 11, 12, 13, or 14!**
 
 ---
 
 #### **2. Active Listening & Empathy (Score: __/10 or N/A)**
 **Priority: IMPORTANT**
+**MAXIMUM SCORE: 10**
 
 - Did CRM listen without interrupting?
 - Were empathetic responses given to concerns?
 - Did they acknowledge customer's emotions?
 
 **Score 0-10** for any conversation, **N/A** only if call was too brief to judge.
+**REMEMBER: 10 is the MAXIMUM. Do not give 11, 12, 13, or 14!**
 
 ---
 
 #### **3. Understanding Customer Needs (Score: __/8 or N/A)**
 **Priority: IMPORTANT**
+**MAXIMUM SCORE: 8**
 
 - Were qualifying questions asked?
 - Did CRM identify what customer needs?
 - Was there probing for hair loss type, lifestyle, budget?
 
 **Score 0-8** if conversation allowed, **N/A** if customer only asked one specific thing and left.
+**REMEMBER: 8 is the MAXIMUM. Do not give 9 or 10!**
 
 ---
 
 #### **4. Call Closure & Next Step (Score: __/8 or N/A)**
 **Priority: IMPORTANT**
+**MAXIMUM SCORE: 8**
 
 - Was clear next step communicated?
 - Did CRM create urgency or excitement?
 - Was commitment secured?
 
 **Score 0-8** for most calls, **N/A** only if customer abruptly ended call.
+**REMEMBER: 8 is the MAXIMUM. Do not give 9 or 10!**
 
 ---
 
 #### **5. Trust & Confidence Building (Score: __/8 or N/A)**
 **Priority: IMPORTANT**
+**MAXIMUM SCORE: 8**
 
 - Did CRM sound knowledgeable and confident?
 - Were testimonials, celebrity clients, or social proof mentioned?
 - Was reassurance provided?
 
 **Score 0-8** if opportunity existed, **N/A** if call was too brief.
+**REMEMBER: 8 is the MAXIMUM. Do not give 9 or 10!**
 
 ---
 
@@ -342,6 +454,7 @@ Evaluate IF greeting occurred:
 
 #### **6. General Product Explanation (Score: __/10 or N/A)**
 **Priority: CRITICAL** (almost always needed in general inquiries)
+**MAXIMUM SCORE: 10**
 
 - Were American Hairline's offerings explained?
 - Customization options mentioned?
@@ -353,10 +466,13 @@ Evaluate IF greeting occurred:
 - If specific question + product explained → **Score 6-10**
 - If customer only asked location/timing → **N/A**
 
+**REMEMBER: 10 is the MAXIMUM. Do not give 11, 12, or higher!**
+
 ---
 
 #### **7. Hairline Types Differentiation (Score: __/8 or N/A)**
 **Priority: CONTEXTUAL** (only if customer mentioned "hairline")
+**MAXIMUM SCORE: 8**
 
 **ONLY score this if customer specifically mentioned hairline/front hairline.**
 
@@ -369,10 +485,13 @@ If customer said "hairline":
 - If hairline discussed + poorly explained → **Score 0-5**
 - If hairline NOT mentioned by customer → **N/A**
 
+**REMEMBER: 8 is the MAXIMUM. Do not give 9 or 10!**
+
 ---
 
 #### **8. Brand Differentiation (USPs) (Score: __/10 or N/A)**
 **Priority: IMPORTANT** (should mention in general inquiries)
+**MAXIMUM SCORE: 10**
 
 USPs: Handmade systems, Premium Remy hair, Custom fit, Natural hairlines, Training support, Transparent consultation, Pan-India reach
 
@@ -381,12 +500,15 @@ USPs: Handmade systems, Premium Remy hair, Custom fit, Natural hairlines, Traini
 - If general inquiry + USPs NOT mentioned → **Score 3-6** (missed opportunity)
 - If specific quick question → **N/A**
 
+**REMEMBER: 10 is the MAXIMUM. Do not give 11, 12, or higher!**
+
 ---
 
 ### **PRICING & SERVICE CLARITY (28 points max)**
 
 #### **9. Budget Justification (₹25K+ Packages) (Score: __/10 or N/A)**
 **Priority: CRITICAL** (if pricing discussed)
+**MAXIMUM SCORE: 10**
 
 **RED FLAG**: If customer said "too expensive" or asked about pricing, CRM MUST justify value.
 
@@ -396,10 +518,13 @@ USPs: Handmade systems, Premium Remy hair, Custom fit, Natural hairlines, Traini
 - If price discussed + just said "come for consultation" → **Score 0-3** (critical failure)
 - If pricing NOT discussed at all → **N/A**
 
+**REMEMBER: 10 is the MAXIMUM. Do not give 11, 12, or higher!**
+
 ---
 
 #### **10. Delivery Timeline & Rush Charges (Score: __/8 or N/A)**
 **Priority: CONTEXTUAL** (only if customer asked about timing)
+**MAXIMUM SCORE: 8**
 
 Standard: 25-30 days. Rush: Ask "how soon?" + $40 charge.
 
@@ -408,10 +533,13 @@ Standard: 25-30 days. Rush: Ask "how soon?" + $40 charge.
 - If customer asked + CRM vague → **Score 0-5**
 - If timing NOT discussed → **N/A**
 
+**REMEMBER: 8 is the MAXIMUM. Do not give 9 or 10!**
+
 ---
 
 #### **11. Stick-On Servicing Details (Score: __/10 or N/A)**
 **Priority: CONTEXTUAL** (only if customer asked about maintenance)
+**MAXIMUM SCORE: 10**
 
 Details: ₹2,500/session, packages available, first 2 sessions must be professional.
 
@@ -419,6 +547,8 @@ Details: ₹2,500/session, packages available, first 2 sessions must be professi
 - If customer asked about servicing + CRM explained well → **Score 8-10**
 - If customer asked + CRM incomplete info → **Score 4-7**
 - If servicing NOT discussed → **N/A**
+
+**REMEMBER: 10 is the MAXIMUM. Do not give 11, 12, or higher!**
 
 ---
 
@@ -455,22 +585,24 @@ What could have been done better (only mention realistic opportunities given the
 
 ## 📊 SCORECARD (FILL WITH REAL VALUES)
 
+**REMEMBER: DO NOT EXCEED MAXIMUM SCORES!**
+
 **CORE COMMUNICATION SKILLS:**
-- Professional Greeting & Introduction Score: __/10 (or "N/A")
-- Active Listening & Empathy Score: __/10 (or "N/A")
-- Understanding Customer Needs Score: __/8 (or "N/A")
-- Call Closure & Next Step Score: __/8 (or "N/A")
-- Trust & Confidence Building Score: __/8 (or "N/A")
+- Professional Greeting & Introduction Score: __/10 (or "N/A") - MAX IS 10!
+- Active Listening & Empathy Score: __/10 (or "N/A") - MAX IS 10!
+- Understanding Customer Needs Score: __/8 (or "N/A") - MAX IS 8!
+- Call Closure & Next Step Score: __/8 (or "N/A") - MAX IS 8!
+- Trust & Confidence Building Score: __/8 (or "N/A") - MAX IS 8!
 
 **PRODUCT & SERVICE KNOWLEDGE:**
-- General Product Explanation Score: __/10 (or "N/A")
-- Hairline Types Differentiation Score: __/8 (or "N/A")
-- Brand Differentiation (USPs) Score: __/10 (or "N/A")
+- General Product Explanation Score: __/10 (or "N/A") - MAX IS 10!
+- Hairline Types Differentiation Score: __/8 (or "N/A") - MAX IS 8!
+- Brand Differentiation (USPs) Score: __/10 (or "N/A") - MAX IS 10!
 
 **PRICING & SERVICE CLARITY:**
-- Budget Justification (₹25K+) Score: __/10 (or "N/A")
-- Delivery Timeline & Rush Charges Score: __/8 (or "N/A")
-- Stick-On Servicing Details Score: __/10 (or "N/A")
+- Budget Justification (₹25K+) Score: __/10 (or "N/A") - MAX IS 10!
+- Delivery Timeline & Rush Charges Score: __/8 (or "N/A") - MAX IS 8!
+- Stick-On Servicing Details Score: __/10 (or "N/A") - MAX IS 10!
 
 **TOTAL SCORE:** Will be calculated by system
 
@@ -481,13 +613,15 @@ What could have been done better (only mention realistic opportunities given the
 After completing the human-readable report, append this JSON between markers (no code fences, no extra text):
 
 {JSON_START}
-{{"greeting": <int or "N/A">, "listening": <int or "N/A">, "understanding_needs": <int or "N/A">, "call_closure": <int or "N/A">, "trust_building": <int or "N/A">, "product_explanation": <int or "N/A">, "hairline_types": <int or "N/A">, "brand_differentiation": <int or "N/A">, "budget_justification": <int or "N/A">, "delivery_timeline": <int or "N/A">, "servicing_details": <int or "N/A">}}
+{{"greeting": <int 0-10 or "N/A">, "listening": <int 0-10 or "N/A">, "understanding_needs": <int 0-8 or "N/A">, "call_closure": <int 0-8 or "N/A">, "trust_building": <int 0-8 or "N/A">, "product_explanation": <int 0-10 or "N/A">, "hairline_types": <int 0-8 or "N/A">, "brand_differentiation": <int 0-10 or "N/A">, "budget_justification": <int 0-10 or "N/A">, "delivery_timeline": <int 0-8 or "N/A">, "servicing_details": <int 0-10 or "N/A">}}
 {JSON_END}
 
-**CRITICAL:**
-- Use actual integers (0-10 or 0-8) for scored parameters
+**CRITICAL JSON RULES:**
+- Use actual integers (0-10 or 0-8) for scored parameters within the maximum limits
 - Use string "N/A" for not applicable parameters
+- DO NOT EXCEED MAXIMUM SCORES IN JSON!
 - Example: {{"greeting": 8, "hairline_types": "N/A", "servicing_details": "N/A"}}
+- WRONG: {{"greeting": 14, ...}} ← This exceeds max of 10!
 """
     
     resp = client.chat.completions.create(
@@ -574,7 +708,7 @@ def parse_scores_from_report(report_text: str) -> Dict[str, ScoreValue]:
     logging.info(f"📊 Parsed Scores (regex fallback): {scores}")
     return scores
 
-# ========== NEW: CONSOLIDATED REPORT GENERATION ==========
+# ========== CONSOLIDATED REPORT GENERATION (EXISTING - NO CHANGES NEEDED) ==========
 
 def generate_consolidated_daily_report(
     agent_name: str,
@@ -584,15 +718,7 @@ def generate_consolidated_daily_report(
 ) -> Dict:
     """
     Generate AI-powered consolidated daily report for an agent.
-    
-    Args:
-        agent_name: Name of the agent
-        report_date: Date of calls (e.g., "2025-10-13")
-        calls_data: List of call dictionaries with transcript, scores, individual_report
-        aggregate_stats: Aggregated statistics (total_calls, avg_scores, etc.)
-    
-    Returns:
-        Dict with common_mistakes, strengths, action_items, coaching_notes, examples
+    (No changes needed - this function is working correctly)
     """
     logging.info(f"📊 Generating consolidated daily report for {agent_name} on {report_date}")
     
@@ -762,16 +888,7 @@ def generate_consolidated_weekly_report(
 ) -> Dict:
     """
     Generate AI-powered consolidated weekly report for an agent.
-    
-    Args:
-        agent_name: Name of the agent
-        week_start: Start date of week (Monday)
-        week_end: End date of week (Sunday)
-        daily_summaries: List of daily report summaries
-        aggregate_stats: Weekly aggregated statistics
-    
-    Returns:
-        Dict with weekly insights, trends, action_items
+    (No changes needed - this function is working correctly)
     """
     logging.info(f"📊 Generating consolidated weekly report for {agent_name} ({week_start} to {week_end})")
     
@@ -894,17 +1011,7 @@ def generate_consolidated_monthly_report(
 ) -> Dict:
     """
     Generate AI-powered consolidated monthly report for an agent.
-    
-    Args:
-        agent_name: Name of the agent
-        month: Month name (e.g., "October")
-        year: Year (e.g., 2025)
-        weekly_summaries: List of weekly report summaries
-        aggregate_stats: Monthly aggregated statistics
-        previous_month_stats: Previous month stats for comparison (optional)
-    
-    Returns:
-        Dict with monthly insights, trends, achievements, focus_areas
+    (No changes needed - this function is working correctly)
     """
     logging.info(f"📊 Generating consolidated monthly report for {agent_name} ({month} {year})")
     
@@ -933,7 +1040,7 @@ def generate_consolidated_monthly_report(
 
 - **Previous Month Average:** {prev_score:.1f}/100
 - **Current Month Average:** {curr_score:.1f}/100
-- **Change:** {'+' if change >= 0 else ''}{change:.1f} points ({'+' if change >= 0 else ''}{(change/prev_score*100):.1f}%)
+- **Change:** {'+' if change >= 0 else ''}{change:.1f} points ({'+' if change >= 0 else ''}{(change/prev_score*100 if prev_score > 0 else 0):.1f}%)
 """
     
     prompt = f"""
@@ -1048,7 +1155,8 @@ High-level coaching strategy and development plan for the agent.
 @app.post("/generate-report")
 async def generate_report_endpoint(request: Request):
     """
-    EXISTING ENDPOINT - Individual call audit
+    Individual call audit endpoint
+    ✨ UPDATED: Now includes score validation and capping
     """
     try:
         data = await request.json()
@@ -1091,7 +1199,11 @@ async def generate_report_endpoint(request: Request):
             scores = parse_scores_from_report(raw_output)
             cleaned_report = raw_output
 
-        logging.info(f"✅ Report generated with smart conditional scoring: {scores}")
+        # ✨ 3) NEW: Validate and cap scores (BELT approach)
+        if scores:
+            scores = validate_and_cap_scores(scores)
+
+        logging.info(f"✅ Report generated with validated scores: {scores}")
         return {"report": cleaned_report, "scores": scores}
 
     except Exception as e:
@@ -1102,31 +1214,8 @@ async def generate_report_endpoint(request: Request):
 @app.post("/generate-consolidated-report")
 async def generate_consolidated_report_endpoint(request: Request):
     """
-    NEW ENDPOINT - Generate consolidated daily report for multiple calls by same agent
-    
-    Expected payload:
-    {
-      "agent_name": "Rahul",
-      "report_type": "daily",
-      "date": "2025-10-13",
-      "calls": [
-        {
-          "call_id": "C001",
-          "customer": "9876543210",
-          "duration": "8m 23s",
-          "final_score": 78,
-          "transcript": "...",
-          "scores": {...},
-          "individual_report": "..."
-        },
-        ...
-      ],
-      "aggregate_stats": {
-        "total_calls": 10,
-        "avg_final_score": 72.5,
-        "avg_scores": {...}
-      }
-    }
+    Generate consolidated daily report for multiple calls by same agent
+    (No changes needed - working correctly)
     """
     try:
         data = await request.json()
@@ -1178,29 +1267,8 @@ async def generate_consolidated_report_endpoint(request: Request):
 @app.post("/generate-weekly-insights")
 async def generate_weekly_insights_endpoint(request: Request):
     """
-    NEW ENDPOINT - Generate consolidated weekly report
-    
-    Expected payload:
-    {
-      "agent_name": "Rahul",
-      "week_start": "2025-10-07",
-      "week_end": "2025-10-13",
-      "daily_summaries": [
-        {
-          "date": "2025-10-07",
-          "total_calls": 5,
-          "avg_score": 73.2,
-          "common_mistakes": [...],
-          "strengths": [...]
-        },
-        ...
-      ],
-      "aggregate_stats": {
-        "total_calls": 35,
-        "avg_final_score": 71.8,
-        "avg_scores": {...}
-      }
-    }
+    Generate consolidated weekly report
+    (No changes needed - working correctly)
     """
     try:
         data = await request.json()
@@ -1244,33 +1312,8 @@ async def generate_weekly_insights_endpoint(request: Request):
 @app.post("/generate-monthly-insights")
 async def generate_monthly_insights_endpoint(request: Request):
     """
-    NEW ENDPOINT - Generate consolidated monthly report
-    
-    Expected payload:
-    {
-      "agent_name": "Rahul",
-      "month": "October",
-      "year": 2025,
-      "weekly_summaries": [
-        {
-          "week_start": "2025-10-01",
-          "week_end": "2025-10-06",
-          "total_calls": 28,
-          "avg_score": 70.5,
-          "trend": "Improving ↑",
-          "weekly_insights": [...]
-        },
-        ...
-      ],
-      "aggregate_stats": {
-        "total_calls": 142,
-        "avg_final_score": 72.3,
-        "avg_scores": {...}
-      },
-      "previous_month_stats": {
-        "avg_final_score": 68.7
-      }
-    }
+    Generate consolidated monthly report
+    (No changes needed - working correctly)
     """
     try:
         data = await request.json()
@@ -1319,9 +1362,14 @@ async def root():
     return {
         "status": "running",
         "service": "CRM Insights API with Consolidated Reporting",
-        "version": "2.0",
+        "version": "3.0",
+        "updates": [
+            "Added score validation and capping",
+            "Strengthened GPT-4o prompts",
+            "Belt and suspenders approach to validation"
+        ],
         "endpoints": [
-            "/generate-report (POST) - Individual call audit",
+            "/generate-report (POST) - Individual call audit with validation",
             "/generate-consolidated-report (POST) - Daily consolidated report",
             "/generate-weekly-insights (POST) - Weekly consolidated report",
             "/generate-monthly-insights (POST) - Monthly consolidated report"
@@ -1331,4 +1379,8 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "3.0"
+    }
