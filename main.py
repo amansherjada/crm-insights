@@ -1,10 +1,9 @@
-# main.py - UPDATED VERSION WITH SCORE VALIDATION & CAPPING
-# Version: 3.0
-# Changes:
-# - Added validate_and_cap_scores() function
-# - Strengthened GPT-4o prompt with explicit score limits
-# - Both backend and frontend validation (belt and suspenders)
-# - Final score now shows: "77 pts (94%)" format
+# main.py - UPDATED VERSION WITH CONSULTATION CHECKLIST & CLIENT BEHAVIOR
+# Version: 4.0
+# New Features:
+# - Consultation booking checklist detection (5 items)
+# - Client behavior analysis (interest level + budget category)
+# - Both are metadata (do NOT affect core scoring)
 
 import os, re, json, tempfile, logging, subprocess, requests
 from typing import List, Dict, Optional, Tuple, Union
@@ -200,10 +199,10 @@ def transcribe_audio(mp3_path: str) -> str:
         )
     return tr.strip()
 
-# ========== ✨ NEW: SCORE VALIDATION FUNCTION ==========
+# ========== SCORE VALIDATION FUNCTION ==========
 def validate_and_cap_scores(scores: Dict[str, ScoreValue]) -> Dict[str, ScoreValue]:
     """
-    ✨ NEW FUNCTION: Validate scores don't exceed max values and cap them if they do.
+    Validate scores don't exceed max values and cap them if they do.
     This is the "belt and suspenders" approach - validating in backend.
     
     Returns corrected scores with logging of any corrections made.
@@ -258,17 +257,16 @@ def validate_and_cap_scores(scores: Dict[str, ScoreValue]) -> Dict[str, ScoreVal
     
     return validated
 
-# ========== INDIVIDUAL REPORT GENERATION (UPDATED) ==========
+# ========== ✨ NEW: INDIVIDUAL REPORT GENERATION (ENHANCED) ==========
 def generate_openai_report(full_transcript: str) -> str:
     """
-    ✨ UPDATED: Strengthened prompt with EXPLICIT score limits
+    ✨ UPDATED VERSION 4.0: Added consultation checklist & client behavior analysis
     Generate comprehensive CRM audit report with SMART CONDITIONAL SCORING (11 Parameters).
-    Uses GPT-4o with Hybrid Smart Approach.
-    Returns human-readable report + machine-readable JSON block with N/A support.
+    Plus: Consultation Checklist & Client Behavior (metadata, not scored)
     """
-    logging.info("📝 Generating OpenAI CRM report with smart conditional scoring (GPT-4o)...")
+    logging.info("📝 Generating OpenAI CRM report with consultation checklist & client behavior...")
     prompt = f"""
-📞 [CRM Call Audit Evaluation – Smart Conditional Scoring System]
+📞 [CRM Call Audit Evaluation – Enhanced with Consultation Checklist & Client Behavior]
 
 You are a senior customer experience auditor for American Hairline, reviewing how a CRM executive handled a first-time inquiry call. Your evaluation must be FAIR and CONTEXT-AWARE.
 
@@ -294,22 +292,6 @@ YOU MUST NEVER GIVE SCORES HIGHER THAN THESE MAXIMUMS. THIS IS NON-NEGOTIABLE.
 - Budget Justification (₹25K+): **MAXIMUM 10** (Not 11, not 12 - MAX IS 10!)
 - Delivery Timeline & Rush Charges: **MAXIMUM 8** (Not 9, not 10 - MAX IS 8!)
 - Stick-On Servicing Details: **MAXIMUM 10** (Not 11, not 12 - MAX IS 10!)
-
-**EXAMPLES OF CORRECT VS WRONG SCORES:**
-✅ CORRECT: Greeting = 10/10 (excellent performance)
-❌ WRONG: Greeting = 14/10 (IMPOSSIBLE - exceeds maximum!)
-
-✅ CORRECT: Call Closure = 8/8 (perfect execution)
-❌ WRONG: Call Closure = 9/8 (IMPOSSIBLE - exceeds maximum!)
-
-✅ CORRECT: Understanding = 7/8 (very good)
-❌ WRONG: Understanding = 10/8 (IMPOSSIBLE - exceeds maximum!)
-
-IF YOU WANT TO GIVE A "PERFECT" SCORE:
-- For 10-point parameters: Use 10 (this is the highest possible)
-- For 8-point parameters: Use 8 (this is the highest possible)
-
-**REMINDER:** The maximum score represents PERFECT performance. There is NO score higher than perfect!
 
 ---
 
@@ -552,6 +534,134 @@ Details: ₹2,500/session, packages available, first 2 sessions must be professi
 
 ---
 
+## ✨ NEW SECTION: CONSULTATION BOOKING CHECKLIST
+
+**IMPORTANT: This section does NOT affect the caller's score. It is for process compliance tracking only.**
+
+### **STEP 1: Determine if this is a Consultation Booking Call**
+
+Look for these indicators:
+- Customer explicitly says "I want to book a consultation" or "schedule an appointment"
+- Customer asks "how do I book?" or "what's the next step?"
+- CRM offers to book a consultation and customer agrees
+- Discussion about consultation fee (₹500)
+- Talk about sending forms, videos, or scheduling
+
+**If YES → This is a consultation booking call, proceed to STEP 2**
+**If NO → Skip this entire section, mark as "Not Applicable"**
+
+### **STEP 2: Check if CRM communicated these 5 mandatory items**
+
+For consultation booking calls ONLY, verify if the CRM mentioned/explained:
+
+#### **1. Payment Fee (₹500) - Did CRM mention it?**
+- Did CRM inform that consultation fee is ₹500?
+- Did CRM ask if client can make payment or guide on payment method?
+- **YES** = Payment mentioned | **NO** = Payment NOT mentioned
+
+#### **2. Mandatory Form - Did CRM mention it?**
+- Did CRM tell client that a mandatory form will be shared on WhatsApp?
+- Did CRM inform that client must fill the form before consultation?
+- **YES** = Form mentioned | **NO** = Form NOT mentioned
+
+#### **3. Pre-Consultation Videos - Did CRM mention them?**
+- Did CRM mention that pre-consultation videos will be shared on WhatsApp?
+- Did CRM instruct client to watch videos before consultation?
+- **YES** = Videos mentioned | **NO** = Videos NOT mentioned
+
+#### **4. Client Questions Request - Did CRM ask for them?**
+- Did CRM ask client to send their questions (topics they want discussed)?
+- Did CRM request client to prepare questions beforehand?
+- **YES** = Questions requested | **NO** = Questions NOT requested
+
+#### **5. Photo Requirements - Did CRM ask for them?**
+- Did CRM tell client to share their recent picture?
+- Did CRM ask for the hairstyle client wants?
+- Did CRM mention both old photo + desired style?
+- **YES** = Photos requested | **NO** = Photos NOT requested
+
+---
+
+## ✨ NEW SECTION: CLIENT BEHAVIOR ANALYSIS
+
+**IMPORTANT: This section does NOT affect the caller's score. It is for internal lead quality classification only.**
+
+Analyze the CLIENT's behavior and intent from the conversation:
+
+### **1. Interest Level Assessment**
+
+Based on the client's engagement, classify as:
+
+**HIGH INTEREST:**
+- Asks multiple detailed questions (3+ questions about product, process, pricing)
+- Discusses specific needs (density, color, style, hair type)
+- Agrees to consultation/payment without hesitation
+- Uses action-oriented language: "when can I get", "I need this by", "let's book", "I'm ready"
+- Shows urgency or commitment
+- Responds with enthusiasm and follow-up questions
+
+**MEDIUM INTEREST:**
+- Asks 1-2 basic questions
+- Responds positively but non-committal ("sounds good", "okay", "I see")
+- Says "I'll think about it", "let me check", "I need to discuss"
+- Polite but not deeply engaged
+- Asks to call back later or requests more info via WhatsApp
+
+**LOW INTEREST:**
+- Very brief responses ("okay", "fine", "alright")
+- Just price shopping - only asks "how much?" with no other questions
+- No follow-up questions after initial answer
+- Says "too expensive" and quickly ends call
+- Sounds distracted or uninterested
+- Gives vague responses or tries to end call quickly
+
+**CANNOT DETERMINE:**
+- Call too short (< 1 minute)
+- Call dropped or technical issue
+- Client only asked one specific administrative question (location, hours, contact)
+- Insufficient conversation to gauge interest
+
+**Select ONE: HIGH | MEDIUM | LOW | CANNOT_DETERMINE**
+
+---
+
+### **2. Budget Category Assessment**
+
+Based on what the client revealed about their budget:
+
+**ABOVE ₹25,000:**
+- Client explicitly states budget above ₹25K (e.g., "I can spend ₹30,000")
+- Client asks about ₹25K+ packages or premium options
+- Client doesn't object when hearing ₹25K+ pricing
+- Client agrees to ₹500 consultation fee without hesitation
+- Client discusses customization, premium features (indicates higher budget)
+
+**BELOW ₹25,000:**
+- Client explicitly states budget below ₹25K (e.g., "my budget is ₹15,000")
+- Client says "too expensive" when hearing ₹25K+ prices
+- Client specifically asks "do you have anything cheaper?"
+- Client asks about basic/economy options only
+- Client hesitates or objects to ₹500 consultation fee
+
+**NOT DISCUSSED:**
+- Price/budget never mentioned in the call
+- Client didn't reveal or hint at their budget range
+- Client deflected budget questions
+- Conversation ended before budget discussion
+
+**Select ONE: ABOVE_25K | BELOW_25K | NOT_DISCUSSED**
+
+---
+
+### **3. Reasoning (Brief Explanation)**
+
+Provide a 1-2 sentence explanation for your interest level and budget classification.
+
+**Example:**
+"Client asked detailed questions about customization options and agreed to ₹500 consultation without hesitation, indicating serious interest and budget above ₹25K."
+
+---
+
 ## 📝 REPORT STRUCTURE
 
 Now write your comprehensive report:
@@ -608,35 +718,85 @@ What could have been done better (only mention realistic opportunities given the
 
 ---
 
+## ✨ CONSULTATION BOOKING CHECKLIST (NEW - NOT SCORED)
+
+**Is this a consultation booking call?** YES / NO
+
+**If YES, check these 5 items:**
+- Payment Fee (₹500) Mentioned: YES / NO
+- Mandatory Form Explained: YES / NO
+- Pre-Consultation Videos Mentioned: YES / NO
+- Client Questions Requested: YES / NO
+- Photo Requirements Explained: YES / NO
+
+**If NO:** Mark entire section as "Not Applicable"
+
+---
+
+## ✨ CLIENT BEHAVIOR ANALYSIS (NEW - NOT SCORED)
+
+**Interest Level:** HIGH / MEDIUM / LOW / CANNOT_DETERMINE
+
+**Budget Category:** ABOVE_25K / BELOW_25K / NOT_DISCUSSED
+
+**Reasoning:** [1-2 sentence explanation of why you classified the client this way]
+
+---
+
 ## ⚙️ MACHINE-READABLE JSON OUTPUT
 
 After completing the human-readable report, append this JSON between markers (no code fences, no extra text):
 
 {JSON_START}
-{{"greeting": <int 0-10 or "N/A">, "listening": <int 0-10 or "N/A">, "understanding_needs": <int 0-8 or "N/A">, "call_closure": <int 0-8 or "N/A">, "trust_building": <int 0-8 or "N/A">, "product_explanation": <int 0-10 or "N/A">, "hairline_types": <int 0-8 or "N/A">, "brand_differentiation": <int 0-10 or "N/A">, "budget_justification": <int 0-10 or "N/A">, "delivery_timeline": <int 0-8 or "N/A">, "servicing_details": <int 0-10 or "N/A">}}
+{{
+  "greeting": <int 0-10 or "N/A">,
+  "listening": <int 0-10 or "N/A">,
+  "understanding_needs": <int 0-8 or "N/A">,
+  "call_closure": <int 0-8 or "N/A">,
+  "trust_building": <int 0-8 or "N/A">,
+  "product_explanation": <int 0-10 or "N/A">,
+  "hairline_types": <int 0-8 or "N/A">,
+  "brand_differentiation": <int 0-10 or "N/A">,
+  "budget_justification": <int 0-10 or "N/A">,
+  "delivery_timeline": <int 0-8 or "N/A">,
+  "servicing_details": <int 0-10 or "N/A">,
+  "consultation_checklist": {{
+    "is_booking_call": true/false,
+    "payment_mentioned": true/false or null,
+    "form_mentioned": true/false or null,
+    "videos_mentioned": true/false or null,
+    "questions_requested": true/false or null,
+    "photos_requested": true/false or null
+  }},
+  "client_behavior": {{
+    "interest_level": "HIGH"/"MEDIUM"/"LOW"/"CANNOT_DETERMINE",
+    "budget_category": "ABOVE_25K"/"BELOW_25K"/"NOT_DISCUSSED",
+    "reasoning": "Brief 1-2 sentence explanation..."
+  }}
+}}
 {JSON_END}
 
 **CRITICAL JSON RULES:**
 - Use actual integers (0-10 or 0-8) for scored parameters within the maximum limits
 - Use string "N/A" for not applicable parameters
 - DO NOT EXCEED MAXIMUM SCORES IN JSON!
-- Example: {{"greeting": 8, "hairline_types": "N/A", "servicing_details": "N/A"}}
+- For consultation_checklist: if is_booking_call is false, set all other fields to null
+- For client_behavior: always provide all three fields (never null)
+- Example: {{"greeting": 8, "hairline_types": "N/A", "consultation_checklist": {{"is_booking_call": false, "payment_mentioned": null, ...}}, "client_behavior": {{"interest_level": "HIGH", "budget_category": "ABOVE_25K", "reasoning": "..."}}}}
 - WRONG: {{"greeting": 14, ...}} ← This exceeds max of 10!
 """
     
     resp = client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=3500,
+        max_tokens=4500,  # Increased for longer response
         temperature=0.2,
     )
     return resp.choices[0].message.content.strip()
 
-def extract_json_and_strip(report_text: str) -> Tuple[Optional[Dict[str, ScoreValue]], str]:
+def extract_json_and_strip(report_text: str) -> Tuple[Optional[Dict], str]:
     """
-    Extract the JSON between markers; return (scores_dict, cleaned_report_without_json).
-    Handles both integer scores and "N/A" values.
-    If extraction fails, scores_dict=None and report_text is returned unchanged.
+    ✨ UPDATED: Extract enhanced JSON with consultation checklist & client behavior
     """
     try:
         start = report_text.index(JSON_START) + len(JSON_START)
@@ -647,7 +807,7 @@ def extract_json_and_strip(report_text: str) -> Tuple[Optional[Dict[str, ScoreVa
         # Remove the entire JSON block with markers from the human report
         cleaned = report_text[:report_text.index(JSON_START)].rstrip()
         
-        # Process each score - keep as int or "N/A"
+        # Process 11 core scores
         scores = {}
         for key in [
             "greeting", "listening", "understanding_needs", "call_closure", 
@@ -664,7 +824,28 @@ def extract_json_and_strip(report_text: str) -> Tuple[Optional[Dict[str, ScoreVa
                 except (ValueError, TypeError):
                     scores[key] = "N/A"
         
-        return scores, cleaned
+        # ✨ NEW: Extract consultation checklist
+        consultation_checklist = data.get("consultation_checklist", {
+            "is_booking_call": False,
+            "payment_mentioned": None,
+            "form_mentioned": None,
+            "videos_mentioned": None,
+            "questions_requested": None,
+            "photos_requested": None
+        })
+        
+        # ✨ NEW: Extract client behavior
+        client_behavior = data.get("client_behavior", {
+            "interest_level": "CANNOT_DETERMINE",
+            "budget_category": "NOT_DISCUSSED",
+            "reasoning": "Insufficient data to determine"
+        })
+        
+        return {
+            "scores": scores,
+            "consultation_checklist": consultation_checklist,
+            "client_behavior": client_behavior
+        }, cleaned
         
     except Exception as e:
         logging.warning(f"⚠️ JSON block extraction failed, will fallback to regex. {e}")
@@ -708,7 +889,7 @@ def parse_scores_from_report(report_text: str) -> Dict[str, ScoreValue]:
     logging.info(f"📊 Parsed Scores (regex fallback): {scores}")
     return scores
 
-# ========== CONSOLIDATED REPORT GENERATION (EXISTING - NO CHANGES NEEDED) ==========
+# ========== CONSOLIDATED REPORT GENERATION (EXISTING - NO CHANGES) ==========
 
 def generate_consolidated_daily_report(
     agent_name: str,
@@ -718,7 +899,7 @@ def generate_consolidated_daily_report(
 ) -> Dict:
     """
     Generate AI-powered consolidated daily report for an agent.
-    (No changes needed - this function is working correctly)
+    ✨ UPDATED: Now includes consultation checklist & client behavior insights
     """
     logging.info(f"📊 Generating consolidated daily report for {agent_name} on {report_date}")
     
@@ -1155,8 +1336,7 @@ High-level coaching strategy and development plan for the agent.
 @app.post("/generate-report")
 async def generate_report_endpoint(request: Request):
     """
-    Individual call audit endpoint
-    ✨ UPDATED: Now includes score validation and capping
+    ✨ UPDATED: Individual call audit endpoint with consultation checklist & client behavior
     """
     try:
         data = await request.json()
@@ -1187,24 +1367,51 @@ async def generate_report_endpoint(request: Request):
             try: os.remove(mp3_path)
             except: pass
 
-        # Generate report with smart conditional scoring
+        # Generate report with smart conditional scoring + new features
         full_transcript = clean_transcript(" ".join(parts).strip())
         raw_output = generate_openai_report(full_transcript)
 
-        # 1) Try to extract JSON scores & strip from report (so PDF won't show JSON)
-        scores, cleaned_report = extract_json_and_strip(raw_output)
+        # 1) Try to extract JSON (scores + consultation + behavior) & strip from report
+        extracted_data, cleaned_report = extract_json_and_strip(raw_output)
 
-        # 2) If JSON failed, fallback to regex; keep full text as report
-        if scores is None:
+        # 2) If JSON failed, fallback to regex for scores only
+        if extracted_data is None:
             scores = parse_scores_from_report(raw_output)
             cleaned_report = raw_output
+            
+            # Set defaults for new fields
+            consultation_checklist = {
+                "is_booking_call": False,
+                "payment_mentioned": None,
+                "form_mentioned": None,
+                "videos_mentioned": None,
+                "questions_requested": None,
+                "photos_requested": None
+            }
+            client_behavior = {
+                "interest_level": "CANNOT_DETERMINE",
+                "budget_category": "NOT_DISCUSSED",
+                "reasoning": "Failed to extract from report"
+            }
+        else:
+            scores = extracted_data["scores"]
+            consultation_checklist = extracted_data["consultation_checklist"]
+            client_behavior = extracted_data["client_behavior"]
 
-        # ✨ 3) NEW: Validate and cap scores (BELT approach)
+        # 3) Validate and cap scores
         if scores:
             scores = validate_and_cap_scores(scores)
 
         logging.info(f"✅ Report generated with validated scores: {scores}")
-        return {"report": cleaned_report, "scores": scores}
+        logging.info(f"✅ Consultation checklist: {consultation_checklist}")
+        logging.info(f"✅ Client behavior: {client_behavior}")
+        
+        return {
+            "report": cleaned_report,
+            "scores": scores,
+            "consultation_checklist": consultation_checklist,  # ✨ NEW
+            "client_behavior": client_behavior  # ✨ NEW
+        }
 
     except Exception as e:
         logging.exception("❌ Report generation failed")
@@ -1362,14 +1569,15 @@ async def root():
     return {
         "status": "running",
         "service": "CRM Insights API with Consolidated Reporting",
-        "version": "3.0",
+        "version": "4.0",
         "updates": [
-            "Added score validation and capping",
-            "Strengthened GPT-4o prompts",
-            "Belt and suspenders approach to validation"
+            "Added consultation booking checklist (5 items)",
+            "Added client behavior analysis (interest level + budget category)",
+            "Both new features are metadata (do NOT affect core scoring)",
+            "Enhanced JSON response structure"
         ],
         "endpoints": [
-            "/generate-report (POST) - Individual call audit with validation",
+            "/generate-report (POST) - Individual call audit with checklist & behavior",
             "/generate-consolidated-report (POST) - Daily consolidated report",
             "/generate-weekly-insights (POST) - Weekly consolidated report",
             "/generate-monthly-insights (POST) - Monthly consolidated report"
@@ -1382,5 +1590,5 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "version": "3.0"
+        "version": "4.0"
     }
