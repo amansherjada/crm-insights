@@ -745,7 +745,8 @@ What could have been done better (only mention realistic opportunities given the
 
 ## ⚙️ MACHINE-READABLE JSON OUTPUT
 
-After completing the human-readable report, append this JSON between markers (no code fences, no extra text):
+After completing your reasoning, output the FINAL RESULT in this JSON structure between the markers.
+Ensure "qualitative_analysis" contains the summary points you wrote in the report section.
 
 {JSON_START}
 {{
@@ -771,7 +772,13 @@ After completing the human-readable report, append this JSON between markers (no
   "client_behavior": {{
     "interest_level": "HIGH"/"MEDIUM"/"LOW"/"CANNOT_DETERMINE",
     "budget_category": "ABOVE_25K"/"BELOW_25K"/"NOT_DISCUSSED",
-    "reasoning": "Brief 1-2 sentence explanation..."
+    "reasoning": "Brief explanation..."
+  }},
+  "qualitative_analysis": {{
+    "customer_profile": "e.g., Price-sensitive inquiring about patch...",
+    "strengths": ["Strength point 1", "Strength point 2", "Strength point 3"],
+    "weaknesses": ["Missed opportunity 1", "Correction needed 2"],
+    "coaching_tips": ["Specific action item 1", "Specific action item 2"]
   }}
 }}
 {JSON_END}
@@ -796,7 +803,7 @@ After completing the human-readable report, append this JSON between markers (no
 
 def extract_json_and_strip(report_text: str) -> Tuple[Optional[Dict], str]:
     """
-    ✨ UPDATED: Extract enhanced JSON with consultation checklist & client behavior
+    ✨ UPDATED v4.1: Extract JSON including Qualitative Analysis texts
     """
     try:
         start = report_text.index(JSON_START) + len(JSON_START)
@@ -824,7 +831,7 @@ def extract_json_and_strip(report_text: str) -> Tuple[Optional[Dict], str]:
                 except (ValueError, TypeError):
                     scores[key] = "N/A"
         
-        # ✨ NEW: Extract consultation checklist
+        # Extract consultation checklist
         consultation_checklist = data.get("consultation_checklist", {
             "is_booking_call": False,
             "payment_mentioned": None,
@@ -834,17 +841,26 @@ def extract_json_and_strip(report_text: str) -> Tuple[Optional[Dict], str]:
             "photos_requested": None
         })
         
-        # ✨ NEW: Extract client behavior
+        # Extract client behavior
         client_behavior = data.get("client_behavior", {
             "interest_level": "CANNOT_DETERMINE",
             "budget_category": "NOT_DISCUSSED",
             "reasoning": "Insufficient data to determine"
         })
+
+        # ✨ NEW: Extract Qualitative Analysis (Strengths, Weaknesses, Coaching)
+        qualitative_analysis = data.get("qualitative_analysis", {
+            "customer_profile": "Analysis unavailable",
+            "strengths": [],
+            "weaknesses": [],
+            "coaching_tips": []
+        })
         
         return {
             "scores": scores,
             "consultation_checklist": consultation_checklist,
-            "client_behavior": client_behavior
+            "client_behavior": client_behavior,
+            "qualitative_analysis": qualitative_analysis  # <--- NEW FIELD
         }, cleaned
         
     except Exception as e:
@@ -1398,6 +1414,8 @@ async def generate_report_endpoint(request: Request):
             consultation_checklist = extracted_data["consultation_checklist"]
             client_behavior = extracted_data["client_behavior"]
 
+        qualitative_analysis = extracted_data.get("qualitative_analysis") if extracted_data else None
+
         # 3) Validate and cap scores
         if scores:
             scores = validate_and_cap_scores(scores)
@@ -1410,7 +1428,8 @@ async def generate_report_endpoint(request: Request):
             "report": cleaned_report,
             "scores": scores,
             "consultation_checklist": consultation_checklist,  # ✨ NEW
-            "client_behavior": client_behavior  # ✨ NEW
+            "client_behavior": client_behavior,  # ✨ NEW
+            "qualitative_analysis": qualitative_analysis
         }
 
     except Exception as e:
